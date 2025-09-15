@@ -1,5 +1,5 @@
 // ---------- DOM lookups ----------
-const form = document.getElementById('searchForm');   // <form id="searchForm"> … </form>
+const form = document.getElementById('searchForm');
 const q = document.getElementById('q');
 const sortSel = document.getElementById('sort');
 const perpageSel = document.getElementById('perpage');
@@ -8,7 +8,7 @@ const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
 const showHistoryBtn = document.getElementById('showHistoryBtn');
 
-// Focus the search box (if present)
+// Focus the search box
 if (q) q.focus();
 
 // ---------- Health check ----------
@@ -22,27 +22,29 @@ if (q) q.focus();
   }
 })();
 
-// Show history even without searching
+// ---------- Show History (even without searching) ----------
 if (showHistoryBtn) {
   showHistoryBtn.addEventListener('click', async () => {
     const card = document.getElementById('historyCard');
-    card.style.display = '';
-    await loadHistory();
+    card.style.display = '';           // reveal card
+    await loadHistory();               // populate
     card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
 
 // ---------- Submit handler (Enter or button) ----------
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  await runSearch();
-});
+if (form) {
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await runSearch();
+  });
+}
 
 // ---------- Search flow ----------
 async function runSearch() {
-  const text = q.value.trim();
-  const sortType = sortSel.value;
-  const perpage = parseInt(perpageSel.value, 10);
+  const text = (q?.value || '').trim();
+  const sortType = (sortSel?.value) || 'default';
+  const perpage = parseInt(perpageSel?.value || '25', 10);
 
   statusEl.textContent = 'Searching…';
   table.style.display = 'none';
@@ -70,7 +72,7 @@ async function runSearch() {
       // Add-to-qB button
       const addBtn = document.createElement('button');
       addBtn.textContent = 'Add';
-      // enable if we have a direct dl hash OR at least an id (backend will fall back to cookie fetch)
+      // enable if we have a direct dl hash OR at least an id
       addBtn.disabled = !(it.dl || it.id);
       addBtn.addEventListener('click', async () => {
         addBtn.disabled = true;
@@ -82,7 +84,9 @@ async function runSearch() {
             body: JSON.stringify({
               id: String(it.id ?? ''),
               title: it.title || '',
-              dl: it.dl || ''
+              dl: it.dl || '',
+              author: it.author_info || '',
+              narrator: it.narrator_info || ''
             })
           });
           if (!resp.ok) {
@@ -140,7 +144,7 @@ function escapeHtml(s) {
 }
 
 function formatSize(sz) {
-  if (!sz) return '';
+  if (sz == null || sz === '') return '';
   const n = Number(sz);
   if (!Number.isFinite(n)) return String(sz);
   const units = ['B','KB','MB','GB','TB'];
@@ -154,14 +158,16 @@ async function loadHistory() {
     const r = await fetch('/history');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
+
     const card = document.getElementById('historyCard');
     const hist = document.getElementById('history');
-    const tbody = hist.querySelector('tbody');
-    tbody.innerHTML = '';
+    const htbody = hist.querySelector('tbody');
+    htbody.innerHTML = '';
 
     (j.items || []).forEach((h) => {
       const tr = document.createElement('tr');
       const when = h.added_at ? new Date(h.added_at.replace(' ', 'T') + 'Z').toLocaleString() : '';
+      const linkURL = h.mam_id ? `https://www.myanonamouse.net/t/${encodeURIComponent(h.mam_id)}` : '';
 
       const rmBtn = document.createElement('button');
       rmBtn.textContent = 'Remove';
@@ -171,8 +177,7 @@ async function loadHistory() {
           const resp = await fetch(`/history/${encodeURIComponent(h.id)}`, { method: 'DELETE' });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           tr.remove();
-          const hasRows = tbody.children.length > 0;
-          card.style.display = hasRows ? '' : 'none';
+          card.style.display = htbody.children.length > 0 ? '' : 'none';
         } catch (e) {
           console.error('remove failed', e);
           rmBtn.disabled = false;
@@ -181,12 +186,16 @@ async function loadHistory() {
 
       tr.innerHTML = `
         <td>${escapeHtml(h.title || '')}</td>
+        <td>${escapeHtml(h.author || '')}</td>
+        <td>${escapeHtml(h.narrator || '')}</td>
+        <td>${h.size ? formatSize(h.size) : ''}</td>
+        <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
         <td>${escapeHtml(when)}</td>
         <td>${escapeHtml(h.qb_status || '')}</td>
         <td></td>
       `;
       tr.lastElementChild.appendChild(rmBtn);
-      tbody.appendChild(tr);
+      htbody.appendChild(tr);
     });
 
     card.style.display = (j.items && j.items.length) ? '' : 'none';
