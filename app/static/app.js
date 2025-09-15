@@ -6,6 +6,7 @@ const perpageSel = document.getElementById('perpage');
 const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
+const showHistoryBtn = document.getElementById('showHistoryBtn');
 
 // Focus the search box (if present)
 if (q) q.focus();
@@ -20,6 +21,16 @@ if (q) q.focus();
     document.getElementById('health').textContent = 'Error';
   }
 })();
+
+// Show history even without searching
+if (showHistoryBtn) {
+  showHistoryBtn.addEventListener('click', async () => {
+    const card = document.getElementById('historyCard');
+    card.style.display = '';
+    await loadHistory();
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
 
 // ---------- Submit handler (Enter or button) ----------
 form.addEventListener('submit', async (e) => {

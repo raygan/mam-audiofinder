@@ -6,7 +6,7 @@ services:
     ports:
       - "8008:8080"
     volumes:
-      - data:/data
+      - /mnt/user/docker/appdata/mam-audiofinder/data:/data
     env_file:
       - .env
     restart: unless-stopped
