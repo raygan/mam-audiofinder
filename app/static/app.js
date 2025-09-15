@@ -147,16 +147,37 @@ async function loadHistory() {
     const hist = document.getElementById('history');
     const tbody = hist.querySelector('tbody');
     tbody.innerHTML = '';
+
     (j.items || []).forEach((h) => {
       const tr = document.createElement('tr');
       const when = h.added_at ? new Date(h.added_at.replace(' ', 'T') + 'Z').toLocaleString() : '';
+
+      const rmBtn = document.createElement('button');
+      rmBtn.textContent = 'Remove';
+      rmBtn.addEventListener('click', async () => {
+        rmBtn.disabled = true;
+        try {
+          const resp = await fetch(`/history/${encodeURIComponent(h.id)}`, { method: 'DELETE' });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          tr.remove();
+          const hasRows = tbody.children.length > 0;
+          card.style.display = hasRows ? '' : 'none';
+        } catch (e) {
+          console.error('remove failed', e);
+          rmBtn.disabled = false;
+        }
+      });
+
       tr.innerHTML = `
         <td>${escapeHtml(h.title || '')}</td>
         <td>${escapeHtml(when)}</td>
         <td>${escapeHtml(h.qb_status || '')}</td>
+        <td></td>
       `;
+      tr.lastElementChild.appendChild(rmBtn);
       tbody.appendChild(tr);
     });
+
     card.style.display = (j.items && j.items.length) ? '' : 'none';
   } catch (e) {
     console.error('history load failed', e);

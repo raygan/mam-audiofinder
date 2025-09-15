@@ -254,7 +254,15 @@ async def add_to_qb(body: AddBody):
 def history():
     with engine.begin() as cx:
         rows = cx.execute(text("""
-            SELECT mam_id, title, dl, added_at, qb_status
-            FROM history ORDER BY id DESC LIMIT 200
+            SELECT id, mam_id, title, dl, added_at, qb_status, qb_hash
+            FROM history
+            ORDER BY id DESC
+            LIMIT 200
         """)).mappings().all()
     return {"items": list(rows)}
+    
+@app.delete("/history/{row_id}")
+def delete_history(row_id: int):
+    with engine.begin() as cx:
+        cx.execute(text("DELETE FROM history WHERE id = :id"), {"id": row_id})
+    return {"ok": True}
