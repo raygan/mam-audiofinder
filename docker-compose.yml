@@ -1,0 +1,14 @@
+services:
+  mam-audiofinder:
+    build: .
+    image: mam-audiofinder:dev
+    container_name: mam-audiofinder
+    ports:
+      - "8008:8080"
+    volumes:
+      - data:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+volumes:
+  data: {}

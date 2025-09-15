@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MAM Audiobook Finder</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+    header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; margin: 0; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 1100px; }
+    .row { display:flex; gap:0.5rem; flex-wrap: wrap; }
+    input[type="text"] { flex:1; min-width: 260px; padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
+    select { padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
+    button { padding:0.6rem 0.9rem; border:1px solid #888; background:#f6f6f6; border-radius:8px; cursor:pointer; }
+    table { width:100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: 0.5rem; border-bottom: 1px solid #eee; text-align: left; }
+    .muted { color:#666; font-size:0.9rem; }
+    .right { text-align:right; }
+    .center { text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📚 MAM Audiobook Finder</h1>
+    <span class="muted">Search for audiobooks to add to qBittorrent</span>
+  </header>
+
+  <form id="searchForm" class="row">
+    <input id="q" type="text" placeholder="Search title/author/narrator" />
+    <select id="sort">
+      <option value="default">Sort: Default</option>
+      <option value="seedersDesc">Seeders ↓</option>
+      <option value="dateDesc">Date Added ↓</option>
+      <option value="sizeDesc">Size ↓</option>
+    </select>
+    <select id="perpage">
+      <option>25</option>
+      <option>50</option>
+      <option>100</option>
+    </select>
+    <button id="searchBtn" type="submit">Search</button>
+  </form>
+
+    <div id="status" class="muted" style="margin-top:0.5rem"></div>
+
+    <table id="results" style="display:none">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Narrator</th>
+          <th>Format</th>
+          <th class="right">Size</th>
+          <th class="right">S/L</th>
+          <th>Added</th>
+          <th>Link</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    
+    <div id="historyCard" class="card" style="margin-top:1rem; display:none">
+      <h3 style="margin:0 0 .5rem 0; font-size:1.1rem;">History</h3>
+      <table id="history">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>When</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <p class="muted">Health check: <code id="health">…</code></p>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

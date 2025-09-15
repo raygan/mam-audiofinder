@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environment & local data
+.env
+/data/
+*.db
+
+# OS/editor
+.DS_Store
