@@ -169,6 +169,9 @@ async function loadHistory() {
       const when = h.added_at ? new Date(h.added_at.replace(' ', 'T') + 'Z').toLocaleString() : '';
       const linkURL = h.mam_id ? `https://www.myanonamouse.net/t/${encodeURIComponent(h.mam_id)}` : '';
 
+      // buttons
+      const importBtn = document.createElement('button');
+      importBtn.textContent = 'Import';
       const rmBtn = document.createElement('button');
       rmBtn.textContent = 'Remove';
       rmBtn.addEventListener('click', async () => {
@@ -191,11 +194,111 @@ async function loadHistory() {
         <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
         <td>${escapeHtml(when)}</td>
         <td>${escapeHtml(h.qb_status || '')}</td>
-        <td></td>
+        <td></td>   <!-- Import -->
+        <td></td>   <!-- Remove -->
       `;
+      // attach buttons
+      tr.children[tr.children.length - 2].appendChild(importBtn);
       tr.lastElementChild.appendChild(rmBtn);
       htbody.appendChild(tr);
-    });
+
+      // expander row (initially hidden)
+      const exp = document.createElement('tr');
+      exp.style.display = 'none';
+      const expTd = document.createElement('td');
+      expTd.colSpan = 8; // match history column count
+      exp.appendChild(expTd);
+      htbody.appendChild(exp);
+
+      importBtn.addEventListener('click', async () => {
+        // toggle
+        if (exp.style.display === '') {
+          exp.style.display = 'none';
+          expTd.innerHTML = '';
+          return;
+        }
+        // build form
+        exp.style.display = '';
+        expTd.innerHTML = `
+          <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span>Import:</span>
+              <span>/</span>
+              <input type="text" class="imp-author" placeholder="Author" value="${escapeHtml(h.author || '')}" style="min-width:220px;">
+              <span>/</span>
+              <input type="text" class="imp-title" placeholder="Title" value="${escapeHtml(h.title || '')}" style="min-width:280px;">
+              <span>/</span>
+              <select class="imp-torrent" style="min-width:320px;">
+                <option disabled selected>Loading torrents…</option>
+              </select>
+              <button class="imp-go">Copy to Library</button>
+            </div>
+            <div class="imp-status" style="margin-top:6px;color:#666;"></div>
+          </div>
+        `;
+
+        const authorInput = expTd.querySelector('.imp-author');
+        const titleInput  = expTd.querySelector('.imp-title');
+        const sel         = expTd.querySelector('.imp-torrent');
+        const goBtn       = expTd.querySelector('.imp-go');
+        const st          = expTd.querySelector('.imp-status');
+
+        // load torrents in our qB category
+        try {
+          const r = await fetch('/qb/torrents');
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const j = await r.json();
+          sel.innerHTML = '';
+          (j.items || []).forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.hash;
+            opt.textContent = `${t.name}  —  ${t.single_file ? 'single-file' : t.root}`;
+            sel.appendChild(opt);
+          });
+          if (!sel.children.length) {
+            const opt = document.createElement('option');
+            opt.disabled = true; opt.selected = true;
+            opt.textContent = 'No completed torrents in category';
+            sel.appendChild(opt);
+          }
+        } catch (e) {
+          console.error(e);
+          sel.innerHTML = '<option disabled selected>Failed to load torrents</option>';
+        }
+
+        goBtn.addEventListener('click', async (ev) => {
+          ev.preventDefault();
+          const author = authorInput.value.trim();
+          const title  = titleInput.value.trim();
+          const hash   = sel.value;
+          if (!author || !title || !hash) {
+            st.textContent = 'Please fill Author, Title, and select a torrent.';
+            return;
+          }
+          goBtn.disabled = true;
+          st.textContent = 'Importing…';
+          try {
+            const r = await fetch('/import', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ author, title, hash })
+            });
+            if (!r.ok) {
+              let msg = `HTTP ${r.status}`;
+              try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
+              throw new Error(msg);
+            }
+            const jr = await r.json();
+            st.textContent = `Done → ${jr.dest}`;
+            goBtn.textContent = 'Imported';
+          } catch (e) {
+            console.error(e);
+            st.textContent = `Failed: ${e.message}`;
+            goBtn.disabled = false;
+          }
+        });
+      });
+    }); // <-- close forEach correctly
 
     card.style.display = (j.items && j.items.length) ? '' : 'none';
   } catch (e) {

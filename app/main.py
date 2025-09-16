@@ -29,6 +29,21 @@ QB_PASS = os.getenv("QB_PASS", "adminadmin")
 QB_SAVEPATH = os.getenv("QB_SAVEPATH", "")  # optional
 QB_TAGS     = os.getenv("QB_TAGS", "MAM,audiobook")  # optional
 
+QB_CATEGORY = os.getenv("QB_CATEGORY", "mam-audiofinder")
+DL_DIR = os.getenv("DL_DIR", "/media/torrents")
+LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
+IMPORT_MODE = os.getenv("IMPORT_MODE", "link")  # link|copy|move
+
+QB_INNER_DL_PREFIX = os.getenv("QB_INNER_DL_PREFIX", "/downloads")  # qB container's mount point
+
+# apply UMASK for created files/dirs
+_um = os.getenv("UMASK")
+if _um:
+    try:
+        os.umask(int(_um, 8))
+    except Exception:
+        pass
+
 # ---------------------------- DB ----------------------------
 # /data should be a volume/bind mount
 engine = create_engine("sqlite:////data/history.db", future=True)
@@ -216,7 +231,7 @@ async def add_to_qb(body: AddBody):
 
         # Try URL add first if we have a cookie-less direct link
         if direct_url:
-            form = {"urls": direct_url}
+            form = {"urls": direct_url, "category": QB_CATEGORY}
             if tag_str: form["tags"] = tag_str
             if QB_SAVEPATH: form["savepath"] = QB_SAVEPATH
             r = await client.post(f"{QB_URL}/api/v2/torrents/add", data=form)
@@ -269,7 +284,7 @@ async def add_to_qb(body: AddBody):
             raise HTTPException(status_code=502, detail="Could not fetch .torrent from MAM (no dl hash and cookie fetch failed).")
 
         files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
-        data = {}
+        data = {"category": QB_CATEGORY}
         if tag_str: data["tags"] = tag_str
         if QB_SAVEPATH: data["savepath"] = QB_SAVEPATH
 
@@ -290,13 +305,12 @@ async def add_to_qb(body: AddBody):
 
         with engine.begin() as cx:
             cx.execute(text("""
-                INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at, size)
-                VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at, :size)
+                INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
+                VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
             """), {
                 "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
                 "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
                 "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                "size": size,
             })
 
     return {"ok": True}
@@ -318,3 +332,154 @@ def delete_history(row_id: int):
     with engine.begin() as cx:
         cx.execute(text("DELETE FROM history WHERE id = :id"), {"id": row_id})
     return {"ok": True}
+    
+# ---------------------------- List Importable ----------------------------
+@app.get("/qb/torrents")
+async def qb_torrents():
+    async with httpx.AsyncClient(timeout=30) as c:
+        await qb_login(c)
+        # completed in our category
+        r = await c.get(f"{QB_URL}/api/v2/torrents/info",
+                        params={"category": QB_CATEGORY, "filter": "completed"})
+        r.raise_for_status()
+        infos = r.json() if isinstance(r.json(), list) else []
+
+        out = []
+        for t in infos:
+            h = t.get("hash")
+            if not h:
+                continue
+            # files to determine single vs multi + root
+            fr = await c.get(f"{QB_URL}/api/v2/torrents/files", params={"hash": h})
+            files = fr.json() if fr.status_code == 200 else []
+            # compute top-level root (before first '/')
+            roots = set()
+            for f in files:
+                name = (f.get("name") or "").lstrip("/")
+                roots.add(name.split("/", 1)[0])
+            root = (list(roots)[0] if roots else t.get("name") or "")
+            single_file = len(files) == 1 and "/" not in (files[0].get("name") or "")
+            out.append({
+                "hash": h,
+                "name": t.get("name"),
+                "save_path": t.get("save_path"),  # absolute host path, but we mounted /media so it should start with /media
+                "root": root,
+                "single_file": single_file,
+                "size": t.get("total_size"),
+                "added_on": t.get("added_on"),
+            })
+        return {"items": out}
+        
+# ---------------------------- Perform Import ----------------------------
+
+from pathlib import Path
+import shutil
+
+AUDIO_EXTS = None  # copy everything except .cue (per your request)
+
+def sanitize(name: str) -> str:
+    s = name.strip().replace(":", " -").replace("\\", "﹨").replace("/", "﹨")
+    return re.sub(r"\s+", " ", s)[:200] or "Unknown"
+
+def next_available(path: Path) -> Path:
+    if not path.exists():
+        return path
+    i = 2
+    while True:
+        cand = path.with_name(f"{path.name} ({i})")
+        if not cand.exists():
+            return cand
+        i += 1
+
+def try_hardlink(src: Path, dst: Path):
+    try:
+        os.link(src, dst)
+        return True
+    except Exception:
+        return False
+
+def copy_one(src: Path, dst: Path):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if IMPORT_MODE == "move":
+        shutil.move(src, dst)
+    elif IMPORT_MODE == "link":
+        if not try_hardlink(src, dst):
+            shutil.copy2(src, dst)
+    else:  # copy
+        shutil.copy2(src, dst)
+
+class ImportBody(BaseModel):
+    author: str
+    title: str
+    hash: str
+
+@app.post("/import")
+def do_import(body: ImportBody):
+    author = sanitize(body.author)
+    title = sanitize(body.title)
+    h = body.hash
+
+    # Query qB for files, properties, and content_path
+    with httpx.Client(timeout=30) as c:
+        # login
+        lr = c.post(f"{QB_URL}/api/v2/auth/login",
+                    data={"username": QB_USER, "password": QB_PASS})
+        if lr.status_code != 200 or "Ok" not in lr.text:
+            raise HTTPException(status_code=502, detail="qB login failed")
+
+        # files (used to detect single-file)
+        fr = c.get(f"{QB_URL}/api/v2/torrents/files", params={"hash": h})
+        if fr.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"qB files failed: {fr.status_code}")
+        files = fr.json()
+        if not files:
+            raise HTTPException(status_code=404, detail="No files found for torrent")
+
+        # properties (optional save_path)
+        pr = c.get(f"{QB_URL}/api/v2/torrents/properties", params={"hash": h})
+        save_path = ""
+        if pr.status_code == 200:
+            save_path = (pr.json().get("save_path") or "").rstrip("/")
+
+        # info (to get content_path)
+        ir = c.get(f"{QB_URL}/api/v2/torrents/info", params={"hashes": h})
+        info_list = ir.json() if ir.status_code == 200 else []
+        info = info_list[0] if isinstance(info_list, list) and info_list else {}
+        content_path = info.get("content_path") or ""
+        if not content_path:
+            raise HTTPException(status_code=404, detail="Torrent content path not found")
+
+    # map qB’s internal paths to this container’s paths
+    def map_qb_path(p: str) -> str:
+        prefix = QB_INNER_DL_PREFIX.rstrip("/")
+        if p == prefix or p.startswith(prefix + "/"):
+            return p.replace(QB_INNER_DL_PREFIX, DL_DIR, 1)
+        if p.startswith("/media/"):
+            return p
+        p = p.replace("/mnt/user/media", "/media", 1)
+        p = p.replace("/mnt/media", "/media", 1)
+        return p
+
+    src_root = Path(map_qb_path(content_path))
+
+    # Destination: /library/Author/Title[/...]
+    lib = Path(LIB_DIR)
+    author_dir = lib / author
+    author_dir.mkdir(parents=True, exist_ok=True)
+    dest_dir = next_available(author_dir / title)
+
+    # Copy/link all (skip .cue)
+    if src_root.is_file():
+        if src_root.suffix.lower() == ".cue":
+            raise HTTPException(status_code=400, detail="Only .cue file found; nothing to import")
+        copy_one(src_root, dest_dir / src_root.name)
+    else:
+        for p in src_root.rglob("*"):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() == ".cue":
+                continue
+            rel = p.relative_to(src_root)
+            copy_one(p, dest_dir / rel)
+
+    return {"ok": True, "dest": str(dest_dir)}

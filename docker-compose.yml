@@ -5,10 +5,14 @@ services:
     container_name: mam-audiofinder
     ports:
       - "8008:8080"
-    volumes:
-      - /mnt/user/docker/appdata/mam-audiofinder/data:/data
     env_file:
       - .env
+    user: "${PUID}:${PGID}"      # run as 99:100
+    environment:
+      UMASK: "${UMASK}"
+    volumes:
+      - /mnt/user/docker/appdata/mam-audiofinder/data:/data
+      - ${MEDIA_ROOT}:/media           # single mount: /media/...
     restart: unless-stopped
 volumes:
   data: {}
