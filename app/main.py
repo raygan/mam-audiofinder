@@ -70,6 +70,11 @@ with engine.begin() as cx:
             cx.execute(text(ddl))
         except Exception:
             pass
+        
+    try:
+        cx.execute(text("ALTER TABLE history ADD COLUMN imported_at TEXT"))
+    except Exception:
+        pass
 
 # ---------------------------- App ----------------------------
 app = FastAPI(title="MAM Audiobook Finder", version="0.3.0")
@@ -414,6 +419,7 @@ class ImportBody(BaseModel):
     author: str
     title: str
     hash: str
+    history_id: int | None = None
 
 @app.post("/import")
 def do_import(body: ImportBody):
@@ -488,15 +494,33 @@ def do_import(body: ImportBody):
     if h and QB_URL:
         try:
             with httpx.Client(timeout=15) as c2:
-                lr = c2.post(f"{QB_URL}/api/v2/auth/login",
-                             data={"username": QB_USER, "password": QB_PASS})
+                lr = c2.post(
+                    f"{QB_URL}/api/v2/auth/login",
+                    data={"username": QB_USER, "password": QB_PASS},
+                )
                 if lr.status_code == 200 and "Ok" in (lr.text or ""):
                     # Setting to empty string unsets the category on most qB versions.
                     # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY to that name.
-                    c2.post(f"{QB_URL}/api/v2/torrents/setCategory",
-                            data={"hashes": h, "category": QB_POSTIMPORT_CATEGORY})
+                    c2.post(
+                        f"{QB_URL}/api/v2/torrents/setCategory",
+                        data={"hashes": h, "category": QB_POSTIMPORT_CATEGORY},
+                    )
         except Exception as _e:
-            # We don't want the import to fail if this best-effort step errors.
+            # Best effort: don't fail the import if this errors.
             pass
+
+    # --- mark history as imported ---
+    with engine.begin() as cx:
+        if body.history_id is not None:
+            cx.execute(
+                text("UPDATE history SET qb_status='imported', imported_at=:ts WHERE id=:id"),
+                {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "id": body.history_id},
+            )
+        else:
+            # Fallback: try by torrent hash if we have it
+            cx.execute(
+                text("UPDATE history SET qb_status='imported', imported_at=:ts WHERE qb_hash=:h"),
+                {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
+            )
 
     return {"ok": True, "dest": str(dest_dir)}

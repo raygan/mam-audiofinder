@@ -296,10 +296,16 @@ importBtn.addEventListener('click', async () => {
     goBtn.disabled = true;
     st.textContent = 'Importing…';
     try {
+      console.log('import payload', { author, title, hash, history_id: h.id });  // logging to troubleshoot mark-as-imported
       const r = await fetch('/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ author, title, hash })
+        body: JSON.stringify({ 
+          author,
+          title,
+          hash,
+          history_id: h.id
+        })
       });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
@@ -309,6 +315,11 @@ importBtn.addEventListener('click', async () => {
       const jr = await r.json();
       st.textContent = `Done → ${jr.dest}`;
       goBtn.textContent = 'Imported';
+      
+      // update Status cell in this row: columns are
+      // 0 Title, 1 Author, 2 Narrator, 3 Link, 4 When, 5 Status, 6 Import, 7 Remove
+      const statusTd = tr.children[5];
+      if (statusTd) statusTd.textContent = 'imported';
 
       // Bonus: refresh the torrents list so this one disappears if you clear/move category server-side
       // (optional) const _ = await fetch('/qb/torrents'); // ignore result
