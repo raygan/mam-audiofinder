@@ -30,6 +30,8 @@ QB_SAVEPATH = os.getenv("QB_SAVEPATH", "")  # optional
 QB_TAGS     = os.getenv("QB_TAGS", "MAM,audiobook")  # optional
 
 QB_CATEGORY = os.getenv("QB_CATEGORY", "mam-audiofinder")
+QB_POSTIMPORT_CATEGORY = os.getenv("QB_POSTIMPORT_CATEGORY", "")  # "" = clear; or set e.g. "imported"
+
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
 IMPORT_MODE = os.getenv("IMPORT_MODE", "link")  # link|copy|move
@@ -481,5 +483,20 @@ def do_import(body: ImportBody):
                 continue
             rel = p.relative_to(src_root)
             copy_one(p, dest_dir / rel)
+
+    # --- post-import: clear or change category so it disappears from our list ---
+    if h and QB_URL:
+        try:
+            with httpx.Client(timeout=15) as c2:
+                lr = c2.post(f"{QB_URL}/api/v2/auth/login",
+                             data={"username": QB_USER, "password": QB_PASS})
+                if lr.status_code == 200 and "Ok" in (lr.text or ""):
+                    # Setting to empty string unsets the category on most qB versions.
+                    # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY to that name.
+                    c2.post(f"{QB_URL}/api/v2/torrents/setCategory",
+                            data={"hashes": h, "category": QB_POSTIMPORT_CATEGORY})
+        except Exception as _e:
+            # We don't want the import to fail if this best-effort step errors.
+            pass
 
     return {"ok": True, "dest": str(dest_dir)}
