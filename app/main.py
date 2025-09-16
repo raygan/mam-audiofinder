@@ -47,8 +47,7 @@ with engine.begin() as cx:
     # Add columns if missing (idempotent)
     for ddl in (
         "ALTER TABLE history ADD COLUMN author   TEXT",
-        "ALTER TABLE history ADD COLUMN narrator TEXT",
-        "ALTER TABLE history ADD COLUMN size     INTEGER"
+        "ALTER TABLE history ADD COLUMN narrator TEXT"
     ):
         try:
             cx.execute(text(ddl))
@@ -184,7 +183,6 @@ class AddBody(BaseModel):
     dl: str | None = None
     author: str | None = None
     narrator: str | None = None
-    size: int | None = None  # bytes if provided
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -193,7 +191,6 @@ async def add_to_qb(body: AddBody):
     author = (body.author or "").strip()
     narrator = (body.narrator or "").strip()
     dl = (body.dl or "").strip()
-    size = body.size if isinstance(body.size, int) else None
 
     if not mam_id and not dl:
         raise HTTPException(status_code=400, detail="Missing MAM id and dl; need at least one")
@@ -243,13 +240,12 @@ async def add_to_qb(body: AddBody):
 
                 with engine.begin() as cx:
                     cx.execute(text("""
-                        INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at, size)
-                        VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at, :size)
+                        INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
+                        VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
                     """), {
                         "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
                         "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
                         "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                        "size": size,
                     })
                 return {"ok": True}
             # else: fall through to cookie fetch
@@ -310,7 +306,7 @@ async def add_to_qb(body: AddBody):
 def history():
     with engine.begin() as cx:
         rows = cx.execute(text("""
-            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status, size
+            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status
             FROM history
             ORDER BY id DESC
             LIMIT 200

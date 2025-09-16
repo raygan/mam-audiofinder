@@ -188,7 +188,6 @@ async function loadHistory() {
         <td>${escapeHtml(h.title || '')}</td>
         <td>${escapeHtml(h.author || '')}</td>
         <td>${escapeHtml(h.narrator || '')}</td>
-        <td>${h.size ? formatSize(h.size) : ''}</td>
         <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
         <td>${escapeHtml(when)}</td>
         <td>${escapeHtml(h.qb_status || '')}</td>
