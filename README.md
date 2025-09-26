@@ -1,6 +1,6 @@
 # MAM Audiobook Finder
 
-A lightweight web app + API to quickly search [MyAnonamouse](https://www.myanonamouse.net/) for audiobooks, add them to qBittorrent, and import completed downloads into your [Audiobookshelf](https://www.audiobookshelf.org/) library.
+A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add them to qBittorrent, and import completed downloads into your [Audiobookshelf](https://www.audiobookshelf.org/) library.
 
 ![Search](/app/static/screenshots/search.png)
 ![Import](/app/static/screenshots/import.png)
