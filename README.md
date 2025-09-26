@@ -13,6 +13,8 @@ A lightweight web app + API to quickly search [MyAnonamouse](https://www.myanona
 - **History view** of all books you've added  
 - **Inline import tool** to copy or hard-link completed downloads into your Audiobookshelf library  
 - Minimal, fast UI that works on desktop and mobile
+- ZERO AUTHENTICATION (*Please* don't put this on the open internet. Tailscale or a Cloudflare Tunnel with Cloudflare Access might be good options.)
+- Spouse tested and approved
 
 ## Requirements
 
