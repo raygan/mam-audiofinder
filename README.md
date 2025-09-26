@@ -29,7 +29,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
    - Your **MAM session cookie** (`MAM_COOKIE`)
    - Your **qBittorrent WebUI** address and credentials (`QB_URL`, `QB_USER`, `QB_PASS`)
    - Update host paths (`MEDIA_ROOT`, `DATA_DIR`) to match your system
-3. Start the container (will pull the image if needed):
+3. Start the container:
    ```bash
    docker compose up -d
    ```
