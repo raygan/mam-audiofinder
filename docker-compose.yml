@@ -1,16 +1,16 @@
 services:
   mam-audiofinder:
     build: .
-    image: mam-audiofinder:dev
+    image: ghcr.io/raygan/mam-audiofinder:latest
     container_name: mam-audiofinder
     ports:
-      - "8008:8080"
+      - "${APP_PORT}:8080"
     env_file:
       - .env
-    user: "${PUID}:${PGID}"      # run as 99:100
+    user: "${PUID}:${PGID}"
     environment:
       UMASK: "${UMASK}"
     volumes:
-      - ${DATA_DIR}:/data              # app data mount
-      - ${MEDIA_ROOT}:/media           # single mount: /media/...
+      - ${DATA_DIR}:/data
+      - ${MEDIA_ROOT}:/media
     restart: unless-stopped
