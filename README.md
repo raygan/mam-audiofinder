@@ -11,8 +11,7 @@ A lightweight web app + API to quickly search [MyAnonamouse](https://www.myanona
 - **Search MAM** by title, author, or narrator  
 - **One-click add to qBittorrent** (with its own category)  
 - **History view** of all books you've added  
-- **Inline import tool** to copy or hard-link completed downloads into your library  
-- **Cue-file skip** and duplicate-title handling (`Title (2)` if needed)  
+- **Inline import tool** to copy or hard-link completed downloads into your Audiobookshelf library  
 - Minimal, fast UI that works on desktop and mobile
 
 ## Requirements
@@ -21,35 +20,42 @@ A lightweight web app + API to quickly search [MyAnonamouse](https://www.myanona
 - A valid MAM session cookie  
 - Docker & Docker Compose
 
-## Quick Start
 
 1. Clone this repository.
-2. Copy `.env.example` → `.env` and fill in:
-   - `MAM_COOKIE` (your session cookie)
-   - `QB_URL`, `QB_USER`, `QB_PASS` (qBittorrent WebUI creds)
-   - `DL_DIR` and `LIB_DIR` (downloads & Audiobookshelf library)
-3. Build and run:
-
+2. Copy `.env.example` → `.env` and fill in the required values:
+   - Your **MAM session cookie** (`MAM_COOKIE`)
+   - Your **qBittorrent WebUI** address and credentials (`QB_URL`, `QB_USER`, `QB_PASS`)
+   - Update host paths (`MEDIA_ROOT`, `DATA_DIR`) to match your system
+3. Start the container (will pull the image if needed):
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
    
 4. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port).
 
 ## Environment Variables
 
-| Variable | Description |
-|---------|-------------|
-| `MAM_COOKIE` | Your MAM session cookie |
-| `QB_URL`, `QB_USER`, `QB_PASS` | qBittorrent WebUI connection |
-| `QB_CATEGORY` | Category used for torrents (default `mam-audiofinder`) |
-| `DL_DIR` | Path inside container to qB downloads (default `/media/torrents`) |
-| `LIB_DIR` | Path inside container to Audiobookshelf library |
-| `IMPORT_MODE` | `link`, `copy`, or `move` (default `link`) |
-| `PUID`, `PGID`, `UMASK` | Container user/group and umask |
+| Variable               | Description                                                                 |
+|------------------------|-----------------------------------------------------------------------------|
+| `MAM_COOKIE`           | Your MAM session cookie (use ASN-locked cookie)                             |
+| `QB_URL`               | qBittorrent WebUI URL (e.g. `http://qbittorrent:8080`)                      |
+| `QB_USER`              | qBittorrent WebUI username                                                  |
+| `QB_PASS`              | qBittorrent WebUI password                                                  |
+| `MEDIA_ROOT`           | Host path that contains both torrent downloads and Audiobookshelf library   |
+| `DATA_DIR`             | Host path where this app stores its state (e.g. SQLite DB)                  |
+| `DL_DIR`               | In-container path for qBittorrent downloads (default `/media/torrents`)     |
+| `LIB_DIR`              | In-container path for Audiobookshelf library (default `/media/Books/Audiobooks`) |
+| `IMPORT_MODE`          | `link`, `copy`, or `move` (default `link`)                                  |
+| `QB_CATEGORY`          | Category assigned to new torrents (default `mam-audiofinder`)               |
+| `QB_POSTIMPORT_CATEGORY` | Category to set after import (empty = unset)                              |
+| `PUID`                 | Container user ID (for file permissions, default `99`)                      |
+| `PGID`                 | Container group ID (for file permissions, default `100`)                    |
+| `UMASK`                | File creation mask (default `0002`)                                         |
 
 
 This project was created to scratch a personal itch, and was almost entirely vibe-coded with ChatGPT. I will probably not be developing it further, looking at issues, or accepting pull requests.
+Do not run this on the open internet! 
+Are you a *real* developer? Do you want to fork or rewrite this project and make it not suck? Go for it!
 
 ## License
 
