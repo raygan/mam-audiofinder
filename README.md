@@ -22,6 +22,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 - A valid MAM session cookie  
 - Docker & Docker Compose
 
+## Quick Start
 
 1. Clone this repository.
 2. Copy `.env.example` → `.env` and fill in the required values:
