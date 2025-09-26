@@ -11,8 +11,6 @@ services:
     environment:
       UMASK: "${UMASK}"
     volumes:
-      - /mnt/user/docker/appdata/mam-audiofinder/data:/data
+      - ${DATA_DIR}:/data              # app data mount
       - ${MEDIA_ROOT}:/media           # single mount: /media/...
     restart: unless-stopped
-volumes:
-  data: {}
