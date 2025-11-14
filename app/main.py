@@ -87,6 +87,13 @@ templates = Jinja2Templates(directory="templates")
 async def health():
     return {"ok": True}
 
+@app.get("/config")
+async def config():
+    return {
+        "import_mode": IMPORT_MODE,
+        "flatten_discs": FLATTEN_DISCS,
+    }
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -444,15 +451,24 @@ def try_hardlink(src: Path, dst: Path):
     except Exception:
         return False
 
-def copy_one(src: Path, dst: Path):
+def copy_one(src: Path, dst: Path) -> str:
+    """
+    Copy/link/move a file based on IMPORT_MODE.
+    Returns: "linked", "copied", or "moved"
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
     if IMPORT_MODE == "move":
         shutil.move(src, dst)
+        return "moved"
     elif IMPORT_MODE == "link":
-        if not try_hardlink(src, dst):
+        if try_hardlink(src, dst):
+            return "linked"
+        else:
             shutil.copy2(src, dst)
+            return "copied"
     else:  # copy
         shutil.copy2(src, dst)
+        return "copied"
 
 class ImportBody(BaseModel):
     author: str
@@ -524,11 +540,17 @@ def do_import(body: ImportBody):
 
     # Copy/link all (skip .cue) and count files
     files_copied = 0
+    files_linked = 0
+    files_moved = 0
     if src_root.is_file():
         if src_root.suffix.lower() == ".cue":
             raise HTTPException(status_code=400, detail="Only .cue file found; nothing to import")
-        copy_one(src_root, dest_dir / src_root.name)
+        action = copy_one(src_root, dest_dir / src_root.name)
         files_copied = 1
+        if action == "linked":
+            files_linked = 1
+        elif action == "moved":
+            files_moved = 1
     else:
         # Collect all audio files
         audio_files = []
@@ -557,14 +579,22 @@ def do_import(body: ImportBody):
             for idx, (disc_num, track_num, ext, src_path) in enumerate(files_with_info, start=1):
                 # Generate new filename: Part 001.mp3, Part 002.mp3, etc.
                 new_name = f"Part {idx:03d}{ext}"
-                copy_one(src_path, dest_dir / new_name)
+                action = copy_one(src_path, dest_dir / new_name)
                 files_copied += 1
+                if action == "linked":
+                    files_linked += 1
+                elif action == "moved":
+                    files_moved += 1
         else:
             # Original behavior: preserve directory structure
             for p in audio_files:
                 rel = p.relative_to(src_root)
-                copy_one(p, dest_dir / rel)
+                action = copy_one(p, dest_dir / rel)
                 files_copied += 1
+                if action == "linked":
+                    files_linked += 1
+                elif action == "moved":
+                    files_moved += 1
 
     # Validate that we actually copied something
     if files_copied == 0:
@@ -606,4 +636,11 @@ def do_import(body: ImportBody):
                 {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
             )
 
-    return {"ok": True, "dest": str(dest_dir), "files_copied": files_copied}
+    return {
+        "ok": True,
+        "dest": str(dest_dir),
+        "files_copied": files_copied,
+        "files_linked": files_linked,
+        "files_moved": files_moved,
+        "import_mode": IMPORT_MODE,
+    }
