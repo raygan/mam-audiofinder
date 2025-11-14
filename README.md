@@ -51,11 +51,16 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 | `IMPORT_MODE`          | `link`, `copy`, or `move` (default `link`)                                  |
 | `QB_CATEGORY`          | Category assigned to new torrents (default `mam-audiofinder`)               |
 | `QB_POSTIMPORT_CATEGORY` | Category to set after import (empty = unset)                              |
-| `PUID`                 | Container user ID (for file permissions, default `99`)                      |
-| `PGID`                 | Container group ID (for file permissions, default `100`)                    |
+| `PUID`                 | Container user ID (for file permissions, default `1000`)                    |
+| `PGID`                 | Container group ID (for file permissions, default `1000`)                   |
 | `UMASK`                | File creation mask (default `0002`)                                         |
 
 > **Note:** The variable is `PGID` (not `GUID`). Both `PUID` and `PGID` must be set together. The container will validate your configuration on startup and show helpful error messages if there are issues.
+>
+> **Important:** If you change `PUID` or `PGID` values after the initial build, you must rebuild the container:
+> ```bash
+> docker compose up -d --build
+> ```
 
 
 This project was created to scratch a personal itch, and was almost entirely vibe-coded with ChatGPT. I will probably not be developing it further, looking at issues, or accepting pull requests.

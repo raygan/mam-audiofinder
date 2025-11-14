@@ -1,6 +1,10 @@
 services:
   mam-audiofinder:
-    build: .
+    build:
+      context: .
+      args:
+        PUID: ${PUID}
+        PGID: ${PGID}
     image: ghcr.io/raygan/mam-audiofinder:latest
     container_name: mam-audiofinder
     ports:
