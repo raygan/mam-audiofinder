@@ -470,17 +470,26 @@ def do_import(body: ImportBody):
 
     src_root = Path(map_qb_path(content_path))
 
+    # Validate source path exists
+    if not src_root.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source path not found: {src_root}. content_path from qB: {content_path}"
+        )
+
     # Destination: /library/Author/Title[/...]
     lib = Path(LIB_DIR)
     author_dir = lib / author
     author_dir.mkdir(parents=True, exist_ok=True)
     dest_dir = next_available(author_dir / title)
 
-    # Copy/link all (skip .cue)
+    # Copy/link all (skip .cue) and count files
+    files_copied = 0
     if src_root.is_file():
         if src_root.suffix.lower() == ".cue":
             raise HTTPException(status_code=400, detail="Only .cue file found; nothing to import")
         copy_one(src_root, dest_dir / src_root.name)
+        files_copied = 1
     else:
         for p in src_root.rglob("*"):
             if not p.is_file():
@@ -489,6 +498,14 @@ def do_import(body: ImportBody):
                 continue
             rel = p.relative_to(src_root)
             copy_one(p, dest_dir / rel)
+            files_copied += 1
+
+    # Validate that we actually copied something
+    if files_copied == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No audio files found to import in {src_root}. Found only .cue files or directory is empty."
+        )
 
     # --- post-import: clear or change category so it disappears from our list ---
     if h and QB_URL:
@@ -523,4 +540,4 @@ def do_import(body: ImportBody):
                 {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
             )
 
-    return {"ok": True, "dest": str(dest_dir)}
+    return {"ok": True, "dest": str(dest_dir), "files_copied": files_copied}

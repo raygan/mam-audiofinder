@@ -313,7 +313,7 @@ importBtn.addEventListener('click', async () => {
         throw new Error(msg);
       }
       const jr = await r.json();
-      st.textContent = `Done → ${jr.dest}`;
+      st.textContent = `Done → ${jr.dest} (${jr.files_copied || '?'} files)`;
       goBtn.textContent = 'Imported';
       
       // update Status cell in this row: columns are
