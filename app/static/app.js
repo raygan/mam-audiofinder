@@ -237,6 +237,23 @@ importBtn.addEventListener('click', async () => {
     return;
   }
   exp.style.display = '';
+
+  // Fetch config to get import mode
+  let buttonText = 'Copy to Library';
+  try {
+    const cfgResp = await fetch('/config');
+    if (cfgResp.ok) {
+      const cfg = await cfgResp.json();
+      if (cfg.import_mode === 'link') {
+        buttonText = 'Link to Library';
+      } else if (cfg.import_mode === 'move') {
+        buttonText = 'Move to Library';
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch config', e);
+  }
+
   expTd.innerHTML = `
     <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -249,7 +266,7 @@ importBtn.addEventListener('click', async () => {
         <select class="imp-torrent" style="min-width:320px;">
           <option disabled selected>Loading torrents…</option>
         </select>
-        <button class="imp-go">Copy to Library</button>
+        <button class="imp-go">${buttonText}</button>
       </div>
       <div class="imp-status" style="margin-top:6px;color:#666;"></div>
     </div>
@@ -313,8 +330,27 @@ importBtn.addEventListener('click', async () => {
         throw new Error(msg);
       }
       const jr = await r.json();
-      st.textContent = `Done → ${jr.dest}`;
-      goBtn.textContent = 'Imported';
+
+      // Build status message with statistics
+      let statusMsg = `Done → ${jr.dest} (${jr.files_copied || '?'} files`;
+      if (jr.import_mode === 'link') {
+        if (jr.files_linked > 0) {
+          statusMsg += `, ${jr.files_linked} hardlinked`;
+          if (jr.files_copied > jr.files_linked) {
+            statusMsg += `, ${jr.files_copied - jr.files_linked} copied`;
+          }
+        } else {
+          statusMsg += ', all copied (hardlink failed)';
+        }
+      } else if (jr.import_mode === 'move') {
+        statusMsg += ', moved';
+      } else {
+        statusMsg += ', copied';
+      }
+      statusMsg += ')';
+
+      st.textContent = statusMsg;
+      goBtn.textContent = jr.import_mode === 'link' ? 'Linked' : jr.import_mode === 'move' ? 'Moved' : 'Imported';
       
       // update Status cell in this row: columns are
       // 0 Title, 1 Author, 2 Narrator, 3 Link, 4 When, 5 Status, 6 Import, 7 Remove

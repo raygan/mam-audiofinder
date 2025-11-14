@@ -49,11 +49,41 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 | `DL_DIR`               | In-container path for qBittorrent downloads (default `/media/torrents`)     |
 | `LIB_DIR`              | In-container path for Audiobookshelf library (default `/media/Books/Audiobooks`) |
 | `IMPORT_MODE`          | `link`, `copy`, or `move` (default `link`)                                  |
+| `FLATTEN_DISCS`        | Flatten multi-disc audiobooks to sequential files (default `true`)          |
 | `QB_CATEGORY`          | Category assigned to new torrents (default `mam-audiofinder`)               |
 | `QB_POSTIMPORT_CATEGORY` | Category to set after import (empty = unset)                              |
 | `PUID`                 | Container user ID (for file permissions, default `1000`)                    |
 | `PGID`                 | Container group ID (for file permissions, default `1000`)                   |
 | `UMASK`                | File creation mask (default `0002`)                                         |
+
+### FLATTEN_DISCS Explained
+
+When enabled (default), multi-disc audiobooks are automatically reorganized for Audiobookshelf:
+
+**Input structure:**
+```
+Speaker for the Dead/
+├── Speaker for the Dead (Disc 01)/
+│   ├── Track 01.mp3
+│   ├── Track 02.mp3
+│   └── ...
+├── Speaker for the Dead (Disc 02)/
+│   ├── Track 01.mp3
+│   └── ...
+```
+
+**Output structure:**
+```
+Speaker for the Dead/
+├── Part 001.mp3
+├── Part 002.mp3
+├── Part 003.mp3
+└── ... (all tracks sequentially numbered)
+```
+
+The import detects disc/track patterns (Disc, Disk, CD, Part + Track, Chapter numbers), sorts files correctly across all discs, and renames them sequentially. This creates a clean, flat structure that Audiobookshelf can process into a single audiobook.
+
+Set `FLATTEN_DISCS=false` to preserve the original directory structure.
 
 > **Note:** The variable is `PGID` (not `GUID`). Both `PUID` and `PGID` must be set together. The container will validate your configuration on startup and show helpful error messages if there are issues.
 >
