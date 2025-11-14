@@ -35,6 +35,7 @@ QB_POSTIMPORT_CATEGORY = os.getenv("QB_POSTIMPORT_CATEGORY", "")  # "" = clear; 
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
 IMPORT_MODE = os.getenv("IMPORT_MODE", "link")  # link|copy|move
+FLATTEN_DISCS = os.getenv("FLATTEN_DISCS", "true").lower() in ("true", "1", "yes")  # flatten multi-disc to sequential files
 
 QB_INNER_DL_PREFIX = os.getenv("QB_INNER_DL_PREFIX", "/downloads")  # qB container's mount point
 
@@ -398,6 +399,44 @@ def next_available(path: Path) -> Path:
             return cand
         i += 1
 
+def extract_disc_track(path: Path, root: Path) -> tuple[int, int, str]:
+    """
+    Extract (disc_num, track_num, extension) from a file path.
+    Returns (0, 0, ext) if no pattern detected.
+
+    Patterns detected:
+    - Directories: "Disc 01", "Disk 1", "CD 01", "Part 01", etc.
+    - Files: "Track 01.mp3", "01.mp3", "Chapter 01.mp3", etc.
+    """
+    disc_num = 0
+    track_num = 0
+    ext = path.suffix
+
+    # Get relative path components
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return (disc_num, track_num, ext)
+
+    parts = rel.parts
+
+    # Check directory names for disc number
+    for part in parts[:-1]:  # All except filename
+        # Match patterns like: "Disc 01", "Disk 1", "CD 01", "Part 01"
+        m = re.search(r'(?:disc|disk|cd|part)\s*(\d+)', part, re.IGNORECASE)
+        if m:
+            disc_num = int(m.group(1))
+            break
+
+    # Check filename for track number
+    filename = parts[-1] if parts else ""
+    # Match patterns like: "Track 01.mp3", "01.mp3", "Chapter 01.mp3", "01 - Title.mp3"
+    m = re.search(r'(?:track|chapter|^)[\s\-]*(\d+)', filename, re.IGNORECASE)
+    if m:
+        track_num = int(m.group(1))
+
+    return (disc_num, track_num, ext)
+
 def try_hardlink(src: Path, dst: Path):
     try:
         os.link(src, dst)
@@ -491,14 +530,41 @@ def do_import(body: ImportBody):
         copy_one(src_root, dest_dir / src_root.name)
         files_copied = 1
     else:
+        # Collect all audio files
+        audio_files = []
         for p in src_root.rglob("*"):
             if not p.is_file():
                 continue
             if p.suffix.lower() == ".cue":
                 continue
-            rel = p.relative_to(src_root)
-            copy_one(p, dest_dir / rel)
-            files_copied += 1
+            audio_files.append(p)
+
+        # If FLATTEN_DISCS is enabled, sort by disc/track and rename sequentially
+        if FLATTEN_DISCS and audio_files:
+            # Extract disc/track info and sort
+            files_with_info = []
+            for p in audio_files:
+                disc_num, track_num, ext = extract_disc_track(p, src_root)
+                files_with_info.append((disc_num, track_num, ext, p))
+
+            # Sort by disc number, then track number
+            files_with_info.sort(key=lambda x: (x[0], x[1]))
+
+            # Determine if this is a multi-disc structure
+            has_discs = any(disc_num > 0 for disc_num, _, _, _ in files_with_info)
+
+            # Copy with sequential naming
+            for idx, (disc_num, track_num, ext, src_path) in enumerate(files_with_info, start=1):
+                # Generate new filename: Part 001.mp3, Part 002.mp3, etc.
+                new_name = f"Part {idx:03d}{ext}"
+                copy_one(src_path, dest_dir / new_name)
+                files_copied += 1
+        else:
+            # Original behavior: preserve directory structure
+            for p in audio_files:
+                rel = p.relative_to(src_root)
+                copy_one(p, dest_dir / rel)
+                files_copied += 1
 
     # Validate that we actually copied something
     if files_copied == 0:
