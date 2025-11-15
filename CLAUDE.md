@@ -211,6 +211,7 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 | `/history` | GET | Fetch history | routes/history.py |
 | `/history/{id}` | DELETE | Remove history item | routes/history.py |
 | `/qb/torrents` | GET | List completed torrents | routes/qbittorrent.py |
+| `/qb/torrent/{hash}/tree` | GET | Get torrent file tree with multi-disc detection | routes/qbittorrent.py |
 | `/import` | POST | Import to library | routes/import_route.py |
 | `/covers/{filename}` | GET | Serve cover image | routes/covers_route.py |
 
@@ -252,7 +253,8 @@ CREATE TABLE covers (
 
 ## Key Features & Implementations
 
-### FLATTEN_DISCS Feature
+### FLATTEN_DISCS Feature with UI Controls
+
 **Problem:** Multi-disc audiobooks have structure like:
 ```
 Book/Disc 01/Track 01.mp3
@@ -265,10 +267,41 @@ Book/Part 001.mp3
 Book/Part 002.mp3
 ```
 
-**Implementation** (in `routes/import_route.py`):
-1. Extract disc/track numbers from all files using `extract_disc_track()`
-2. Sort by (disc_num, track_num)
-3. Rename sequentially as "Part 001.mp3", "Part 002.mp3", etc.
+**Implementation:**
+
+#### Backend (routes/import_route.py)
+1. Accept per-request `flatten` parameter (overrides global `FLATTEN_DISCS`)
+2. Extract disc/track numbers from all files using `extract_disc_track()`
+3. Sort by (disc_num, track_num)
+4. Rename sequentially as "Part 001.mp3", "Part 002.mp3", etc.
+
+#### Chapter Detector (routes/qbittorrent.py)
+New endpoint `/qb/torrent/{hash}/tree` provides:
+- File structure analysis
+- Multi-disc pattern detection (Disc/Disk/CD/Part + numbered tracks)
+- Automatic recommendation when 2+ discs detected
+- Fallback to filesystem if qBittorrent API data unavailable
+
+**Detection Patterns:**
+- Directories: `Disc \d+`, `Disk \d+`, `CD \d+`, `Part \d+`
+- Files: `Track \d+`, `Chapter \d+`, `^\d+`
+
+#### Frontend UI (app.js)
+Import form now includes:
+1. **Flatten Checkbox:** User can enable/disable per-import
+2. **Auto-Detection:** Checkbox auto-checked when multi-disc detected
+3. **Tree View Button:** "📁 View Files" shows file structure
+4. **Preview Panel:** Shows before/after comparison when flatten enabled
+5. **Detection Hints:** Visual feedback about disc count and recommendation
+
+**User Flow:**
+1. Click "Import" on history item → form expands
+2. Select torrent from dropdown
+3. Backend automatically analyzes file structure
+4. Flatten checkbox auto-checks if multi-disc detected
+5. User can click "View Files" to see structure and preview
+6. User can manually toggle flatten checkbox
+7. Import proceeds with chosen setting
 
 ### Cover Caching System
 **Architecture:**
@@ -651,7 +684,17 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Code Refactoring & Modularization** (v0.4.0)
+1. **Flatten UI with Tree View & Chapter Detector** (current)
+   - Added per-import flatten checkbox with auto-detection
+   - New `/qb/torrent/{hash}/tree` endpoint for file structure analysis
+   - Chapter detector automatically identifies multi-disc audiobooks
+   - Tree view shows file structure with before/after preview
+   - Smart detection of disc patterns (Disc/Disk/CD/Part + tracks)
+   - Fallback to filesystem if qBittorrent data unavailable
+   - Visual hints show disc count and recommendation
+   - Import endpoint accepts per-request `flatten` parameter
+
+2. **Code Refactoring & Modularization** (v0.4.0)
    - Split monolithic main.py into modular components
    - Created dedicated modules: config.py, db/, covers.py, abs_client.py, utils.py, qb_client.py
    - Organized routes into routes/ package with separate files per domain
@@ -659,21 +702,21 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
    - Wrapped cover logic in CoverService class
    - Improved code maintainability and testability
 
-2. **Hardlink Verification & Display** (commit 32616c9)
+3. **Hardlink Verification & Display** (commit 32616c9)
    - Added visual feedback showing whether files were hardlinked vs copied
    - Improved transparency in import process
 
-3. **FLATTEN_DISCS Feature** (commit 6dcdd84)
+4. **FLATTEN_DISCS Feature** (commit 6dcdd84)
    - Automatically reorganizes multi-disc audiobooks
    - Solves Audiobookshelf compatibility issues
    - Default enabled, configurable via env var
 
-3. **Import Validation** (commit 7c6e1c9)
+5. **Import Validation** (commit 7c6e1c9)
    - Fixed silent failures during import
    - Added clear error messages for missing paths
    - Validates source exists before attempting copy
 
-4. **Docker Permission Fixes** (commits 7a78a96, 041243d)
+6. **Docker Permission Fixes** (commits 7a78a96, 041243d)
    - Implemented proper PUID/PGID support
    - Added startup validation for common errors
    - Fixed GUID vs PGID typo issues
