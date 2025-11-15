@@ -17,7 +17,21 @@
 - [x] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
 - [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
 
-## 3. Display Covers With Grouped Searches
+## 3. Centralized Log Rotation (Default 5 Files)
+- [ ] Decide on log destination (e.g., `/data/logs/app.log`) and ensure directory exists/mounted in Docker.
+- [ ] Replace ad-hoc `print` statements with Python's `logging` module; create logger in `app/main.py` configured with `RotatingFileHandler`.
+- [ ] Set default `LOG_MAX_FILES=5` and `LOG_MAX_MB=5` via env vars (`.env.example`, `validate_env.py`) while allowing overrides.
+- [ ] Ensure console logging still works for Docker (attach `StreamHandler`) and that rotation is shared across background tasks.
+- [ ] Document rotation behavior in README + AGENTS, including instructions for log collection in container setups.
+
+## 4. Sharable Search/History URLs
+- [ ] Define URL schema (e.g., `?q=term&sort=seedersDesc&view=history`) supporting search query, filters, and optional history view toggle.
+- [ ] Update `app/static/app.js` to push state using `history.replaceState`/`pushState` after searches or when History is opened.
+- [ ] On page load, parse `location.search` to pre-populate inputs, auto-run search if `q` exists, and auto-open history if `view=history`.
+- [ ] Handle back/forward navigation by listening to `popstate` and re-running searches/history toggles so the URL stays authoritative.
+- [ ] Reflect additional filters (when grouping arrives) in the query string to keep shared links accurate.
+
+## 5. Display Covers With Grouped Searches
 - [ ] Update frontend search rendering to group torrents by normalized title (strip format tags, trim whitespace, casefold).
 - [ ] For each group render a single cover (prefer ABS cover, else fallback art) alongside group metadata (author, narrator).
 - [ ] Within the group, list individual torrent options (format, size, seeder counts) as rows or cards beneath the shared cover.
