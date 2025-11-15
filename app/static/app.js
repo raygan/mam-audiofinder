@@ -50,32 +50,20 @@ function initCoverObserver() {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         const container = entry.target;
-        const coverUrl = container.dataset.coverUrl;
+        const mamId = container.dataset.mamId;
+        const title = container.dataset.title;
+        const author = container.dataset.author;
 
-        if (coverUrl && coverUrl !== 'pending') {
-          // Replace skeleton with actual image
-          const img = document.createElement('img');
-          img.className = 'cover-image';
-          img.alt = 'Cover';
-          img.src = coverUrl;
+        // Stop observing immediately to avoid duplicate fetches
+        coverObserver.unobserve(container);
 
-          img.onload = () => {
-            img.classList.add('loaded');
-            container.innerHTML = '';
-            container.appendChild(img);
-          };
-
-          img.onerror = () => {
-            container.innerHTML = '<div class="cover-placeholder">No cover</div>';
-          };
-
-          // Stop observing this element
-          coverObserver.unobserve(container);
-        } else if (!coverUrl || coverUrl === 'pending') {
-          // No cover URL available, show placeholder
-          container.innerHTML = '<div class="cover-placeholder">No cover</div>';
-          coverObserver.unobserve(container);
+        if (!mamId || !title) {
+          container.innerHTML = '<div class="cover-placeholder">No info</div>';
+          return;
         }
+
+        // Fetch cover from backend with retry logic
+        fetchCoverForItem(container, mamId, title, author);
       }
     });
   }, {
@@ -84,6 +72,51 @@ function initCoverObserver() {
   });
 
   return coverObserver;
+}
+
+async function fetchCoverForItem(container, mamId, title, author) {
+  try {
+    const params = new URLSearchParams({
+      mam_id: mamId,
+      title: title,
+      author: author || '',
+      max_retries: '2'
+    });
+
+    const resp = await fetch(`/api/covers/fetch?${params}`);
+    if (!resp.ok) {
+      console.error(`Cover fetch failed: HTTP ${resp.status}`);
+      container.innerHTML = '<div class="cover-placeholder">Error</div>';
+      return;
+    }
+
+    const data = await resp.json();
+
+    if (data.cover_url) {
+      // Create and load the image
+      const img = document.createElement('img');
+      img.className = 'cover-image';
+      img.alt = 'Cover';
+      img.src = data.cover_url;
+
+      img.onload = () => {
+        img.classList.add('loaded');
+        container.innerHTML = '';
+        container.appendChild(img);
+      };
+
+      img.onerror = () => {
+        container.innerHTML = '<div class="cover-placeholder">No cover</div>';
+      };
+    } else {
+      // No cover available or error
+      const errorMsg = data.error || 'No cover';
+      container.innerHTML = `<div class="cover-placeholder">${errorMsg === 'No cover found' ? 'No cover' : 'Error'}</div>`;
+    }
+  } catch (e) {
+    console.error('Cover fetch exception:', e);
+    container.innerHTML = '<div class="cover-placeholder">Error</div>';
+  }
 }
 
 // ---------- Search flow ----------
@@ -164,7 +197,9 @@ async function runSearch() {
       // Create cover container with skeleton placeholder
       const coverContainer = document.createElement('div');
       coverContainer.className = 'cover-skeleton';
-      coverContainer.dataset.coverUrl = it.abs_cover_url || '';
+      coverContainer.dataset.mamId = it.id || '';
+      coverContainer.dataset.title = it.title || '';
+      coverContainer.dataset.author = it.author_info || '';
 
       // Create the row structure
       const coverCell = document.createElement('td');
