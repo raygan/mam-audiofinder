@@ -359,6 +359,61 @@ a:hover {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+/* Skeleton placeholder for cover images */
+@keyframes shimmer {
+  0% {
+    background-position: -468px 0;
+  }
+  100% {
+    background-position: 468px 0;
+  }
+}
+
+.cover-skeleton {
+  width: 60px;
+  height: 90px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-panel) 0%,
+    var(--bg-panel-hover) 50%,
+    var(--bg-panel) 100%
+  );
+  background-size: 468px 100%;
+  animation: shimmer 1.2s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  display: block;
+}
+
+.cover-image {
+  max-width: 60px;
+  max-height: 90px;
+  width: auto;
+  height: auto;
+  display: block;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity 0.3s ease-in;
+}
+
+.cover-image.loaded {
+  opacity: 1;
+}
+
+.cover-placeholder {
+  width: 60px;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font-size: 0.7rem;
+  text-align: center;
+  padding: 4px;
+}
+
 /* Focus visible for accessibility */
 :focus-visible {
   outline: 2px solid var(--accent-maroon);

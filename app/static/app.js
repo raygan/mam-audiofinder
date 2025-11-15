@@ -40,6 +40,52 @@ if (form) {
   });
 }
 
+// ---------- Cover lazy loading with IntersectionObserver ----------
+let coverObserver = null;
+
+function initCoverObserver() {
+  if (coverObserver) return coverObserver;
+
+  coverObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const container = entry.target;
+        const coverUrl = container.dataset.coverUrl;
+
+        if (coverUrl && coverUrl !== 'pending') {
+          // Replace skeleton with actual image
+          const img = document.createElement('img');
+          img.className = 'cover-image';
+          img.alt = 'Cover';
+          img.src = coverUrl;
+
+          img.onload = () => {
+            img.classList.add('loaded');
+            container.innerHTML = '';
+            container.appendChild(img);
+          };
+
+          img.onerror = () => {
+            container.innerHTML = '<div class="cover-placeholder">No cover</div>';
+          };
+
+          // Stop observing this element
+          coverObserver.unobserve(container);
+        } else if (!coverUrl || coverUrl === 'pending') {
+          // No cover URL available, show placeholder
+          container.innerHTML = '<div class="cover-placeholder">No cover</div>';
+          coverObserver.unobserve(container);
+        }
+      }
+    });
+  }, {
+    rootMargin: '50px', // Start loading 50px before entering viewport
+    threshold: 0.01
+  });
+
+  return coverObserver;
+}
+
 // ---------- Search flow ----------
 async function runSearch() {
   const text = (q?.value || '').trim();
@@ -65,6 +111,10 @@ async function runSearch() {
       return;
     }
 
+    // Initialize the cover observer
+    const observer = initCoverObserver();
+
+    // Render rows immediately with skeleton placeholders
     rows.forEach((it) => {
       const tr = document.createElement('tr');
       const sl = `${it.seeders ?? '-'} / ${it.leechers ?? '-'}`;
@@ -111,13 +161,18 @@ async function runSearch() {
       // Torrent details link on MAM
       const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
 
-      // Cover image (if available)
-      const coverHTML = it.abs_cover_url
-        ? `<img src="${escapeHtml(it.abs_cover_url)}" alt="Cover" style="max-width: 60px; max-height: 90px; width: auto; height: auto; display: block;" loading="lazy" onerror="this.style.display='none'">`
-        : '<span style="color: #666; font-size: 0.8em;">No cover</span>';
+      // Create cover container with skeleton placeholder
+      const coverContainer = document.createElement('div');
+      coverContainer.className = 'cover-skeleton';
+      coverContainer.dataset.coverUrl = it.abs_cover_url || '';
+
+      // Create the row structure
+      const coverCell = document.createElement('td');
+      coverCell.style.padding = '0.25rem';
+      coverCell.appendChild(coverContainer);
 
       tr.innerHTML = `
-        <td style="padding: 0.25rem;">${coverHTML}</td>
+        <td style="padding: 0.25rem;"></td>
         <td>${escapeHtml(it.title || '')}</td>
         <td>${escapeHtml(it.author_info || '')}</td>
         <td>${escapeHtml(it.narrator_info || '')}</td>
@@ -130,13 +185,24 @@ async function runSearch() {
         </td>
         <td></td>
       `;
+
+      // Replace the first cell with our cover cell
+      tr.replaceChild(coverCell, tr.firstElementChild);
+
+      // Add the Add button
       tr.lastElementChild.appendChild(addBtn);
       tbody.appendChild(tr);
+
+      // Observe the cover container for lazy loading
+      observer.observe(coverContainer);
     });
 
+    // Show table immediately with skeleton placeholders
     table.style.display = '';
     statusEl.textContent = `${rows.length} results shown`;
-    await loadHistory();
+
+    // Load history in parallel (non-blocking)
+    loadHistory().catch(e => console.error('Failed to load history:', e));
   } catch (e) {
     console.error(e);
     statusEl.textContent = 'Search failed.';
