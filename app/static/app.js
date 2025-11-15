@@ -86,7 +86,9 @@ async function runSearch() {
               title: it.title || '',
               dl: it.dl || '',
               author: it.author_info || '',
-              narrator: it.narrator_info || ''
+              narrator: it.narrator_info || '',
+              abs_cover_url: it.abs_cover_url || '',
+              abs_item_id: it.abs_item_id || ''
             })
           });
           if (!resp.ok) {
@@ -109,7 +111,13 @@ async function runSearch() {
       // Torrent details link on MAM
       const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
 
+      // Cover image (if available)
+      const coverHTML = it.abs_cover_url
+        ? `<img src="${escapeHtml(it.abs_cover_url)}" alt="Cover" style="max-width: 60px; max-height: 90px; width: auto; height: auto; display: block;" loading="lazy" onerror="this.style.display='none'">`
+        : '<span style="color: #666; font-size: 0.8em;">No cover</span>';
+
       tr.innerHTML = `
+        <td style="padding: 0.25rem;">${coverHTML}</td>
         <td>${escapeHtml(it.title || '')}</td>
         <td>${escapeHtml(it.author_info || '')}</td>
         <td>${escapeHtml(it.narrator_info || '')}</td>
@@ -207,7 +215,13 @@ async function loadHistory() {
         }
       });
 
+      // Cover image (if available)
+      const coverHTML = h.abs_cover_url
+        ? `<img src="${escapeHtml(h.abs_cover_url)}" alt="Cover" style="max-width: 60px; max-height: 90px; width: auto; height: auto; display: block;" loading="lazy" onerror="this.style.display='none'">`
+        : '<span style="color: #666; font-size: 0.8em;">No cover</span>';
+
       tr.innerHTML = `
+        <td style="padding: 0.25rem;">${coverHTML}</td>
         <td>${escapeHtml(h.title || '')}</td>
         <td>${escapeHtml(h.author || '')}</td>
         <td>${escapeHtml(h.narrator || '')}</td>

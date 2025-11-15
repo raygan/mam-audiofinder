@@ -93,6 +93,29 @@ with engine.begin() as cx:
         except Exception:
             pass
 
+# Covers database - separate from history to cache covers before adding to qBittorrent
+covers_engine = create_engine("sqlite:////data/covers.db", future=True)
+with covers_engine.begin() as cx:
+    cx.execute(text("""
+        CREATE TABLE IF NOT EXISTS covers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          mam_id TEXT UNIQUE NOT NULL,
+          title TEXT,
+          author TEXT,
+          cover_url TEXT NOT NULL,
+          abs_item_id TEXT,
+          fetched_at TEXT DEFAULT (datetime('now'))
+        )
+    """))
+    # Create index for faster lookups
+    try:
+        cx.execute(text("CREATE INDEX IF NOT EXISTS idx_covers_mam_id ON covers(mam_id)"))
+        cx.execute(text("CREATE INDEX IF NOT EXISTS idx_covers_cover_url ON covers(cover_url)"))
+    except Exception:
+        pass
+
+print("✓ Database schemas initialized", file=sys.stderr)
+
 # ---------------------------- Startup Tests ----------------------------
 async def test_abs_connection():
     """Test Audiobookshelf API connectivity on startup."""
@@ -150,58 +173,105 @@ async def home(request: Request):
 # ---------------------------- Audiobookshelf helpers ----------------------------
 def get_cached_cover(mam_id: str) -> dict:
     """
-    Get cached cover from database by MAM ID.
+    Get cached cover from covers database by MAM ID.
     Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
     """
     if not mam_id:
+        print(f"⚠️  get_cached_cover called with empty mam_id", file=sys.stderr)
         return {}
 
     try:
-        with engine.begin() as cx:
+        with covers_engine.begin() as cx:
             row = cx.execute(text("""
-                SELECT abs_cover_url, abs_item_id, abs_cover_cached_at
-                FROM history
-                WHERE mam_id = :mam_id AND abs_cover_url IS NOT NULL
-                ORDER BY added_at DESC
+                SELECT cover_url, abs_item_id, fetched_at, title, author
+                FROM covers
+                WHERE mam_id = :mam_id
                 LIMIT 1
             """), {"mam_id": mam_id}).fetchone()
 
             if row and row[0]:
-                print(f"📦 Cache HIT for MAM ID {mam_id}: {row[0]}", file=sys.stderr)
+                print(f"📦 Cache HIT for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
                 return {"cover_url": row[0], "item_id": row[1]}
 
         print(f"📦 Cache MISS for MAM ID {mam_id}", file=sys.stderr)
         return {}
     except Exception as e:
-        print(f"❌ Failed to get cached cover for {mam_id}: {e}", file=sys.stderr)
+        print(f"❌ CRITICAL: Failed to get cached cover for MAM ID {mam_id}: {type(e).__name__}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         return {}
 
-def save_cover_to_cache(mam_id: str, cover_url: str, item_id: str = None):
+def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None):
     """
-    Save cover URL to database cache for a MAM ID.
-    Updates the most recent history entry for this MAM ID.
+    Save cover URL to covers database.
+    Uses INSERT OR REPLACE to handle duplicates.
+    Also checks if the cover_url is already used by another MAM ID to avoid duplicate fetches.
     """
-    if not mam_id or not cover_url:
+    if not mam_id:
+        print(f"⚠️  save_cover_to_cache called with empty mam_id", file=sys.stderr)
+        return
+
+    if not cover_url:
+        print(f"⚠️  save_cover_to_cache called with empty cover_url for MAM ID {mam_id}", file=sys.stderr)
         return
 
     try:
-        with engine.begin() as cx:
+        print(f"💾 Attempting to cache cover for MAM ID {mam_id}: {cover_url}", file=sys.stderr)
+
+        with covers_engine.begin() as cx:
+            # Check if this cover URL is already cached for a different MAM ID
+            existing = cx.execute(text("""
+                SELECT mam_id, title FROM covers WHERE cover_url = :cover_url AND mam_id != :mam_id LIMIT 1
+            """), {"cover_url": cover_url, "mam_id": mam_id}).fetchone()
+
+            if existing:
+                print(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing for {mam_id}.", file=sys.stderr)
+
+            # Insert or replace the cover entry
             result = cx.execute(text("""
-                UPDATE history
-                SET abs_cover_url = :cover_url,
+                INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, fetched_at)
+                VALUES (:mam_id, :title, :author, :cover_url, :item_id, :fetched_at)
+                ON CONFLICT(mam_id) DO UPDATE SET
+                    cover_url = :cover_url,
                     abs_item_id = :item_id,
-                    abs_cover_cached_at = :cached_at
-                WHERE mam_id = :mam_id
-                AND id = (SELECT id FROM history WHERE mam_id = :mam_id ORDER BY added_at DESC LIMIT 1)
+                    title = :title,
+                    author = :author,
+                    fetched_at = :fetched_at
             """), {
                 "mam_id": mam_id,
+                "title": title,
+                "author": author,
                 "cover_url": cover_url,
                 "item_id": item_id,
-                "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             })
-            print(f"💾 Cached cover for MAM ID {mam_id}: {cover_url} (rows affected: {result.rowcount})", file=sys.stderr)
+
+            print(f"✅ Cached cover for MAM ID {mam_id}: {cover_url}", file=sys.stderr)
+
+        # Also update history table if there's an entry
+        try:
+            with engine.begin() as cx:
+                result = cx.execute(text("""
+                    UPDATE history
+                    SET abs_cover_url = :cover_url,
+                        abs_item_id = :item_id,
+                        abs_cover_cached_at = :cached_at
+                    WHERE mam_id = :mam_id
+                """), {
+                    "mam_id": mam_id,
+                    "cover_url": cover_url,
+                    "item_id": item_id,
+                    "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                })
+                if result.rowcount > 0:
+                    print(f"✅ Updated {result.rowcount} history row(s) with cover for MAM ID {mam_id}", file=sys.stderr)
+        except Exception as he:
+            print(f"⚠️  Failed to update history table (non-critical): {he}", file=sys.stderr)
+
     except Exception as e:
-        print(f"❌ Failed to cache cover for {mam_id}: {e}", file=sys.stderr)
+        print(f"❌ CRITICAL: Failed to cache cover for MAM ID {mam_id}: {type(e).__name__}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
 
 async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dict:
     """
@@ -265,7 +335,7 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                         result = {"cover_url": cover_url, "item_id": None}
                         # Cache the result if we have a MAM ID
                         if mam_id:
-                            save_cover_to_cache(mam_id, cover_url, None)
+                            save_cover_to_cache(mam_id, cover_url, title, author, None)
                         return result
                 else:
                     print(f"⚠️  No results from /api/search/covers", file=sys.stderr)
@@ -303,7 +373,7 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                                 result = {"cover_url": cover_url, "item_id": item_id}
                                 # Cache the result if we have a MAM ID
                                 if mam_id:
-                                    save_cover_to_cache(mam_id, cover_url, item_id)
+                                    save_cover_to_cache(mam_id, cover_url, title, author, item_id)
                                 return result
                     print(f"⚠️  No matching items in library for '{title}'", file=sys.stderr)
                 else:
