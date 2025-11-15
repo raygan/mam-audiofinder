@@ -3,17 +3,20 @@ qBittorrent routes for MAM Audiobook Finder.
 """
 import logging
 import httpx
+from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from config import (
-    MAM_BASE, MAM_COOKIE, QB_URL, QB_CATEGORY, QB_TAGS, QB_SAVEPATH
+    MAM_BASE, MAM_COOKIE, QB_URL, QB_CATEGORY, QB_TAGS, QB_SAVEPATH,
+    DL_DIR, QB_INNER_DL_PREFIX
 )
 from db import engine
 from qb_client import qb_login
 from torrent_helpers import extract_mam_id_from_tags
+from utils import extract_disc_track
 
 router = APIRouter()
 logger = logging.getLogger("mam-audiofinder")
@@ -204,3 +207,196 @@ async def add_to_qb(body: AddBody):
             })
 
     return {"ok": True}
+
+
+def detect_multi_disc_structure(files_data: list, root_path: Path = None) -> dict:
+    """
+    Analyze file structure to detect multi-disc audiobooks.
+
+    Args:
+        files_data: List of dicts with 'path' and 'size' keys
+        root_path: Optional root path for filesystem-based analysis
+
+    Returns:
+        dict with detection results:
+        - has_disc_structure: bool
+        - disc_count: int
+        - track_count: int
+        - recommended_flatten: bool
+    """
+    if not files_data:
+        return {
+            "has_disc_structure": False,
+            "disc_count": 0,
+            "track_count": 0,
+            "recommended_flatten": False
+        }
+
+    # Create a temporary root for analysis if not provided
+    if root_path is None:
+        root_path = Path("/tmp/analysis")
+
+    disc_numbers = set()
+    track_count = 0
+
+    for item in files_data:
+        file_path = item.get("path", "")
+        if not file_path:
+            continue
+
+        # Skip .cue files
+        if file_path.lower().endswith(".cue"):
+            continue
+
+        # Create a Path object for analysis
+        p = root_path / file_path
+
+        # Extract disc and track info
+        disc_num, track_num, ext = extract_disc_track(p, root_path)
+
+        if disc_num > 0:
+            disc_numbers.add(disc_num)
+        if track_num > 0:
+            track_count += 1
+
+    disc_count = len(disc_numbers)
+    has_disc_structure = disc_count > 1
+
+    return {
+        "has_disc_structure": has_disc_structure,
+        "disc_count": disc_count,
+        "track_count": track_count,
+        "recommended_flatten": has_disc_structure
+    }
+
+
+@router.get("/qb/torrent/{hash}/tree")
+async def get_torrent_tree(hash: str):
+    """
+    Get file structure for a torrent with multi-disc detection.
+
+    Returns:
+        - hash: torrent hash
+        - name: torrent name
+        - files: list of {path, size} objects
+        - single_file: bool
+        - has_disc_structure: bool (from detector)
+        - disc_count: int
+        - track_count: int
+        - recommended_flatten: bool
+        - source: 'qbittorrent' or 'filesystem'
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        await qb_login(client)
+
+        # Get torrent info
+        info_resp = await client.get(
+            f"{QB_URL}/api/v2/torrents/info",
+            params={"hashes": hash}
+        )
+
+        if info_resp.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Cannot connect to qBittorrent: HTTP {info_resp.status_code}"
+            )
+
+        info_list = info_resp.json()
+        if not info_list or not isinstance(info_list, list):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Torrent not found: {hash}"
+            )
+
+        torrent_info = info_list[0]
+        torrent_name = torrent_info.get("name", "")
+        content_path = torrent_info.get("content_path", "")
+
+        # Get file list from qBittorrent
+        files_resp = await client.get(
+            f"{QB_URL}/api/v2/torrents/files",
+            params={"hash": hash}
+        )
+
+        files_data = []
+        source = "qbittorrent"
+        single_file = False
+
+        if files_resp.status_code == 200:
+            qb_files = files_resp.json()
+            if qb_files and isinstance(qb_files, list):
+                # Use qBittorrent data
+                for f in qb_files:
+                    file_name = f.get("name", "").lstrip("/")
+                    file_size = f.get("size", 0)
+                    files_data.append({
+                        "path": file_name,
+                        "size": file_size
+                    })
+                single_file = len(qb_files) == 1 and "/" not in (qb_files[0].get("name") or "")
+
+        # Fallback to filesystem if qBittorrent data unavailable or empty
+        if not files_data and content_path:
+            source = "filesystem"
+            logger.info(f"qBittorrent file list empty, using filesystem for {hash}")
+
+            # Map qBittorrent path to container path
+            def map_qb_path(p: str) -> str:
+                prefix = QB_INNER_DL_PREFIX.rstrip("/")
+                if p == prefix or p.startswith(prefix + "/"):
+                    return p.replace(QB_INNER_DL_PREFIX, DL_DIR, 1)
+                if p.startswith("/media/"):
+                    return p
+                p = p.replace("/mnt/user/media", "/media", 1)
+                p = p.replace("/mnt/media", "/media", 1)
+                return p
+
+            src_path = Path(map_qb_path(content_path))
+
+            if src_path.exists():
+                if src_path.is_file():
+                    # Single file
+                    single_file = True
+                    files_data.append({
+                        "path": src_path.name,
+                        "size": src_path.stat().st_size
+                    })
+                else:
+                    # Directory - scan all files
+                    for file_path in src_path.rglob("*"):
+                        if file_path.is_file():
+                            rel_path = file_path.relative_to(src_path)
+                            files_data.append({
+                                "path": str(rel_path),
+                                "size": file_path.stat().st_size
+                            })
+            else:
+                logger.warning(f"Filesystem path not found: {src_path}")
+                # Return minimal data to prevent errors
+                return {
+                    "hash": hash,
+                    "name": torrent_name,
+                    "files": [],
+                    "single_file": False,
+                    "has_disc_structure": False,
+                    "disc_count": 0,
+                    "track_count": 0,
+                    "recommended_flatten": False,
+                    "source": "none",
+                    "error": f"Path not accessible: {content_path}"
+                }
+
+        # Run chapter detector
+        detection = detect_multi_disc_structure(files_data)
+
+        return {
+            "hash": hash,
+            "name": torrent_name,
+            "files": files_data,
+            "single_file": single_file,
+            "has_disc_structure": detection["has_disc_structure"],
+            "disc_count": detection["disc_count"],
+            "track_count": detection["track_count"],
+            "recommended_flatten": detection["recommended_flatten"],
+            "source": source
+        }

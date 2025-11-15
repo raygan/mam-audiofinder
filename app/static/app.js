@@ -473,6 +473,15 @@ importBtn.addEventListener('click', async () => {
         </select>
         <button class="imp-go">${buttonText}</button>
       </div>
+      <div style="display:flex;gap:12px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" class="imp-flatten" style="cursor:pointer;">
+          <span>Flatten multi-disc structure</span>
+        </label>
+        <button class="imp-view-files" style="font-size:0.9em;">📁 View Files</button>
+        <span class="imp-detection-hint" style="font-size:0.9em;color:#666;"></span>
+      </div>
+      <div class="imp-tree-view" style="display:none;margin-top:8px;padding:8px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:0.85em;"></div>
       <div class="imp-status" style="margin-top:6px;color:#666;"></div>
     </div>
   `;
@@ -482,6 +491,13 @@ importBtn.addEventListener('click', async () => {
   const sel         = expTd.querySelector('.imp-torrent');
   const goBtn       = expTd.querySelector('.imp-go');
   const st          = expTd.querySelector('.imp-status');
+  const flattenCheckbox = expTd.querySelector('.imp-flatten');
+  const viewFilesBtn = expTd.querySelector('.imp-view-files');
+  const treeView = expTd.querySelector('.imp-tree-view');
+  const detectionHint = expTd.querySelector('.imp-detection-hint');
+
+  // Store tree data for the selected torrent
+  let treeData = null;
 
   // load torrents in our qB category
   let torrents = [];
@@ -530,6 +546,26 @@ importBtn.addEventListener('click', async () => {
       // Show initial status message
       if (matchedTorrent) {
         st.innerHTML = '<span style="color: #27ae60;">✓ Torrent auto-selected based on match</span>';
+
+        // Trigger auto-detection for the matched torrent
+        (async () => {
+          const hash = matchedTorrent.hash;
+          treeData = await fetchTreeData(hash);
+          if (treeData) {
+            if (treeData.recommended_flatten) {
+              flattenCheckbox.checked = true;
+              detectionHint.innerHTML = `<span style="color:#27ae60;">✓ Multi-disc detected (${treeData.disc_count} discs) - flatten recommended</span>`;
+            } else if (treeData.single_file) {
+              flattenCheckbox.checked = false;
+              flattenCheckbox.disabled = true;
+              detectionHint.innerHTML = '<span style="color:#999;">Single file - flatten not applicable</span>';
+            } else {
+              flattenCheckbox.checked = false;
+              flattenCheckbox.disabled = false;
+              detectionHint.textContent = '';
+            }
+          }
+        })();
       } else if (historyHash || historyMamId) {
         st.innerHTML = '<span style="color: #f39c12;">⚠️ No matching torrent found - please select manually</span>';
       }
@@ -544,12 +580,110 @@ importBtn.addEventListener('click', async () => {
     sel.innerHTML = '<option disabled selected>Failed to load torrents</option>';
   }
 
+  // Function to fetch and display tree data
+  async function fetchTreeData(hash) {
+    try {
+      const r = await fetch(`/qb/torrent/${encodeURIComponent(hash)}/tree`);
+      if (!r.ok) {
+        console.error('Failed to fetch tree data:', r.status);
+        return null;
+      }
+      return await r.json();
+    } catch (e) {
+      console.error('Error fetching tree data:', e);
+      return null;
+    }
+  }
+
+  // Function to render tree view
+  function renderTreeView(data, showFlattened) {
+    if (!data || !data.files || data.files.length === 0) {
+      return '<div style="color:#999;">No files found</div>';
+    }
+
+    const files = data.files;
+
+    if (showFlattened && data.has_disc_structure) {
+      // Show flattened preview
+      let html = '<div style="margin-bottom:8px;color:#27ae60;font-weight:bold;">📁 Preview after flatten:</div>';
+
+      // Build file structure with disc/track info
+      const fileList = [];
+      for (const file of files) {
+        if (file.path.toLowerCase().endsWith('.cue')) continue;
+        fileList.push(file);
+      }
+
+      // Sort and number them
+      html += '<div style="margin-left:16px;">';
+      fileList.forEach((file, idx) => {
+        const ext = file.path.substring(file.path.lastIndexOf('.'));
+        const newName = `Part ${String(idx + 1).padStart(3, '0')}${ext}`;
+        const sizeStr = formatSize(file.size);
+        html += `<div>🎵 ${escapeHtml(newName)} <span style="color:#999;font-size:0.9em;">(was: ${escapeHtml(file.path)}) - ${sizeStr}</span></div>`;
+      });
+      html += '</div>';
+
+      return html;
+    } else {
+      // Show original structure
+      let html = '<div style="margin-bottom:8px;font-weight:bold;">📁 Original structure:</div>';
+
+      // Build hierarchical view
+      const tree = {};
+      for (const file of files) {
+        const parts = file.path.split('/');
+        let current = tree;
+
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          if (i === parts.length - 1) {
+            // File
+            if (!current._files) current._files = [];
+            current._files.push({ name: part, size: file.size });
+          } else {
+            // Directory
+            if (!current[part]) current[part] = {};
+            current = current[part];
+          }
+        }
+      }
+
+      // Render tree recursively
+      function renderNode(node, depth = 0) {
+        let result = '';
+        const indent = '  '.repeat(depth);
+
+        // Render directories first
+        for (const [key, value] of Object.entries(node)) {
+          if (key === '_files') continue;
+          result += `<div style="margin-left:${depth * 16}px;">📁 ${escapeHtml(key)}/</div>`;
+          result += renderNode(value, depth + 1);
+        }
+
+        // Then files
+        if (node._files) {
+          for (const file of node._files) {
+            const sizeStr = formatSize(file.size);
+            result += `<div style="margin-left:${depth * 16}px;">🎵 ${escapeHtml(file.name)} <span style="color:#999;font-size:0.9em;">- ${sizeStr}</span></div>`;
+          }
+        }
+
+        return result;
+      }
+
+      html += renderNode(tree);
+      return html;
+    }
+  }
+
   // Add validation when user changes torrent selection
-  sel.addEventListener('change', () => {
+  sel.addEventListener('change', async () => {
     const selectedOption = sel.options[sel.selectedIndex];
     const selectedMamId = selectedOption?.dataset.mamId || '';
     const selectedContentPath = selectedOption?.dataset.contentPath || '';
     const historyMamId = String(h.mam_id || '').trim();
+    const hash = sel.value;
 
     let warnings = [];
 
@@ -572,6 +706,58 @@ importBtn.addEventListener('click', async () => {
     } else {
       st.textContent = '';
     }
+
+    // Fetch tree data and run chapter detector
+    if (hash && hash !== 'Loading torrents…') {
+      treeData = await fetchTreeData(hash);
+
+      if (treeData) {
+        // Auto-check flatten if multi-disc detected
+        if (treeData.recommended_flatten) {
+          flattenCheckbox.checked = true;
+          detectionHint.innerHTML = `<span style="color:#27ae60;">✓ Multi-disc detected (${treeData.disc_count} discs) - flatten recommended</span>`;
+        } else if (treeData.single_file) {
+          flattenCheckbox.checked = false;
+          flattenCheckbox.disabled = true;
+          detectionHint.innerHTML = '<span style="color:#999;">Single file - flatten not applicable</span>';
+        } else {
+          flattenCheckbox.checked = false;
+          flattenCheckbox.disabled = false;
+          detectionHint.textContent = '';
+        }
+
+        // Update tree view if it's already open
+        if (treeView.style.display !== 'none') {
+          treeView.innerHTML = renderTreeView(treeData, flattenCheckbox.checked);
+        }
+      }
+    }
+  });
+
+  // View Files button handler
+  viewFilesBtn.addEventListener('click', () => {
+    if (treeView.style.display === 'none') {
+      if (treeData) {
+        treeView.innerHTML = renderTreeView(treeData, flattenCheckbox.checked);
+        treeView.style.display = 'block';
+        viewFilesBtn.textContent = '📁 Hide Files';
+      } else {
+        treeView.innerHTML = '<div style="color:#f39c12;">Please select a torrent first</div>';
+        treeView.style.display = 'block';
+        viewFilesBtn.textContent = '📁 Hide Files';
+      }
+    } else {
+      treeView.style.display = 'none';
+      viewFilesBtn.textContent = '📁 View Files';
+    }
+  });
+
+  // Flatten checkbox change handler
+  flattenCheckbox.addEventListener('change', () => {
+    // Update tree view if it's visible
+    if (treeView.style.display !== 'none' && treeData) {
+      treeView.innerHTML = renderTreeView(treeData, flattenCheckbox.checked);
+    }
   });
 
   goBtn.addEventListener('click', async (ev) => {
@@ -586,15 +772,17 @@ importBtn.addEventListener('click', async () => {
     goBtn.disabled = true;
     st.textContent = 'Importing…';
     try {
-      console.log('import payload', { author, title, hash, history_id: h.id });  // logging to troubleshoot mark-as-imported
+      const flatten = flattenCheckbox.checked;
+      console.log('import payload', { author, title, hash, history_id: h.id, flatten });  // logging to troubleshoot mark-as-imported
       const r = await fetch('/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           author,
           title,
           hash,
-          history_id: h.id
+          history_id: h.id,
+          flatten
         })
       });
       if (!r.ok) {

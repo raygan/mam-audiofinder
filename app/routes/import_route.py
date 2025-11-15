@@ -48,6 +48,7 @@ class ImportBody(BaseModel):
     title: str
     hash: str
     history_id: int | None = None
+    flatten: bool | None = None  # If None, uses global FLATTEN_DISCS setting
 
 
 @router.post("/import")
@@ -56,6 +57,9 @@ def do_import(body: ImportBody):
     author = sanitize(body.author)
     title = sanitize(body.title)
     h = body.hash
+
+    # Use per-request flatten setting, fallback to global FLATTEN_DISCS
+    use_flatten = body.flatten if body.flatten is not None else FLATTEN_DISCS
 
     # Query qB for files, properties, and content_path
     with httpx.Client(timeout=30) as c:
@@ -178,8 +182,8 @@ def do_import(body: ImportBody):
                 continue
             audio_files.append(p)
 
-        # If FLATTEN_DISCS is enabled, sort by disc/track and rename sequentially
-        if FLATTEN_DISCS and audio_files:
+        # If flatten is enabled, sort by disc/track and rename sequentially
+        if use_flatten and audio_files:
             # Extract disc/track info and sort
             files_with_info = []
             for p in audio_files:
@@ -261,4 +265,5 @@ def do_import(body: ImportBody):
         "files_linked": files_linked,
         "files_moved": files_moved,
         "import_mode": IMPORT_MODE,
+        "flatten_applied": use_flatten,
     }
