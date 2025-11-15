@@ -1,4 +1,4 @@
-import os, json, re, asyncio
+import os, json, re, asyncio, sys
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -93,11 +93,44 @@ with engine.begin() as cx:
         except Exception:
             pass
 
+# ---------------------------- Startup Tests ----------------------------
+async def test_abs_connection():
+    """Test Audiobookshelf API connectivity on startup."""
+    if not ABS_BASE_URL or not ABS_API_KEY:
+        print("ℹ️  Audiobookshelf integration not configured (skipping connectivity test)", file=sys.stderr)
+        return False
+
+    try:
+        print(f"🔍 Testing Audiobookshelf API connection to {ABS_BASE_URL}...", file=sys.stderr)
+        headers = {"Authorization": f"Bearer {ABS_API_KEY}"}
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{ABS_BASE_URL}/api/me", headers=headers)
+
+            if r.status_code == 200:
+                data = r.json()
+                username = data.get("username", "unknown")
+                print(f"✅ Audiobookshelf API connected successfully (user: {username})", file=sys.stderr)
+                return True
+            else:
+                print(f"❌ Audiobookshelf API test failed: HTTP {r.status_code}", file=sys.stderr)
+                print(f"   Response: {r.text[:200]}", file=sys.stderr)
+                return False
+
+    except Exception as e:
+        print(f"❌ Audiobookshelf API test failed with exception: {e}", file=sys.stderr)
+        return False
+
 # ---------------------------- App ----------------------------
 app = FastAPI(title="MAM Audiobook Finder", version="0.3.0")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+@app.on_event("startup")
+async def startup_event():
+    """Run startup tests."""
+    await test_abs_connection()
 
 @app.get("/health")
 async def health():
@@ -134,11 +167,13 @@ def get_cached_cover(mam_id: str) -> dict:
             """), {"mam_id": mam_id}).fetchone()
 
             if row and row[0]:
+                print(f"📦 Cache HIT for MAM ID {mam_id}: {row[0]}", file=sys.stderr)
                 return {"cover_url": row[0], "item_id": row[1]}
 
+        print(f"📦 Cache MISS for MAM ID {mam_id}", file=sys.stderr)
         return {}
     except Exception as e:
-        print(f"Warning: Failed to get cached cover: {e}")
+        print(f"❌ Failed to get cached cover for {mam_id}: {e}", file=sys.stderr)
         return {}
 
 def save_cover_to_cache(mam_id: str, cover_url: str, item_id: str = None):
@@ -151,7 +186,7 @@ def save_cover_to_cache(mam_id: str, cover_url: str, item_id: str = None):
 
     try:
         with engine.begin() as cx:
-            cx.execute(text("""
+            result = cx.execute(text("""
                 UPDATE history
                 SET abs_cover_url = :cover_url,
                     abs_item_id = :item_id,
@@ -164,8 +199,9 @@ def save_cover_to_cache(mam_id: str, cover_url: str, item_id: str = None):
                 "item_id": item_id,
                 "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             })
+            print(f"💾 Cached cover for MAM ID {mam_id}: {cover_url} (rows affected: {result.rowcount})", file=sys.stderr)
     except Exception as e:
-        print(f"Warning: Failed to cache cover: {e}")
+        print(f"❌ Failed to cache cover for {mam_id}: {e}", file=sys.stderr)
 
 async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dict:
     """
@@ -173,6 +209,8 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
     Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
     Checks cache first if mam_id is provided.
     """
+    print(f"🔍 Fetching cover for: '{title}' by '{author}' (MAM ID: {mam_id or 'N/A'})", file=sys.stderr)
+
     # Check cache first
     if mam_id:
         cached = get_cached_cover(mam_id)
@@ -180,9 +218,11 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
             return cached
 
     if not ABS_BASE_URL or not ABS_API_KEY:
+        print(f"⚠️  ABS not configured, skipping cover fetch for '{title}'", file=sys.stderr)
         return {}
 
     if not title:
+        print(f"⚠️  No title provided, skipping cover fetch", file=sys.stderr)
         return {}
 
     try:
@@ -190,6 +230,8 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
         params = {"title": title}
         if author:
             params["author"] = author
+
+        print(f"🌐 Calling ABS /api/search/covers with params: {params}", file=sys.stderr)
 
         async with httpx.AsyncClient(timeout=10) as client:
             # Try the search/covers endpoint first
@@ -199,9 +241,13 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                 params=params
             )
 
+            print(f"📡 ABS /api/search/covers response: HTTP {r.status_code}", file=sys.stderr)
+
             if r.status_code == 200:
                 data = r.json()
                 results = data.get("results", [])
+                print(f"📊 Got {len(results)} results from /api/search/covers", file=sys.stderr)
+
                 if results and len(results) > 0:
                     # Take the first result
                     first_result = results[0]
@@ -209,9 +255,11 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                     if isinstance(first_result, str):
                         # It's just a URL
                         cover_url = first_result
+                        print(f"✅ Found cover URL (string): {cover_url}", file=sys.stderr)
                     elif isinstance(first_result, dict):
                         # It might have more structure
                         cover_url = first_result.get("cover") or first_result.get("url") or str(first_result)
+                        print(f"✅ Found cover URL (dict): {cover_url}", file=sys.stderr)
 
                     if cover_url:
                         result = {"cover_url": cover_url, "item_id": None}
@@ -219,9 +267,14 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                         if mam_id:
                             save_cover_to_cache(mam_id, cover_url, None)
                         return result
+                else:
+                    print(f"⚠️  No results from /api/search/covers", file=sys.stderr)
+            else:
+                print(f"⚠️  /api/search/covers failed: {r.text[:200]}", file=sys.stderr)
 
         # If no results from search/covers, try searching library items
         if ABS_LIBRARY_ID:
+            print(f"🔍 Trying library search with ID: {ABS_LIBRARY_ID}", file=sys.stderr)
             async with httpx.AsyncClient(timeout=10) as client:
                 # Search within library using filter
                 r = await client.get(
@@ -230,9 +283,13 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                     params={"limit": 5, "minified": "1"}
                 )
 
+                print(f"📡 ABS library items response: HTTP {r.status_code}", file=sys.stderr)
+
                 if r.status_code == 200:
                     data = r.json()
                     results = data.get("results", [])
+                    print(f"📊 Got {len(results)} items from library", file=sys.stderr)
+
                     # Simple title matching (case-insensitive)
                     title_lower = title.lower()
                     for item in results:
@@ -242,17 +299,24 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                             if item_id:
                                 # Build cover URL
                                 cover_url = f"{ABS_BASE_URL}/api/items/{item_id}/cover"
+                                print(f"✅ Found cover in library: {cover_url}", file=sys.stderr)
                                 result = {"cover_url": cover_url, "item_id": item_id}
                                 # Cache the result if we have a MAM ID
                                 if mam_id:
                                     save_cover_to_cache(mam_id, cover_url, item_id)
                                 return result
+                    print(f"⚠️  No matching items in library for '{title}'", file=sys.stderr)
+                else:
+                    print(f"⚠️  Library search failed: {r.text[:200]}", file=sys.stderr)
+        else:
+            print(f"ℹ️  No ABS_LIBRARY_ID configured, skipping library search", file=sys.stderr)
 
+        print(f"❌ No cover found for '{title}'", file=sys.stderr)
         return {}
 
     except Exception as e:
         # Don't fail the whole request if ABS is down
-        print(f"Warning: Audiobookshelf cover fetch failed: {e}")
+        print(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}", file=sys.stderr)
         return {}
 
 # ---------------------------- Search ----------------------------
@@ -351,6 +415,7 @@ async def search(payload: dict):
 
     # Fetch covers from Audiobookshelf (if configured)
     if ABS_BASE_URL and ABS_API_KEY and out:
+        print(f"📚 Fetching covers for {len(out)} search results...", file=sys.stderr)
         # Fetch covers in parallel for all results
         cover_tasks = []
         for result in out:
@@ -362,10 +427,22 @@ async def search(payload: dict):
         cover_results = await asyncio.gather(*cover_tasks, return_exceptions=True)
 
         # Add cover URLs to results
+        covers_added = 0
         for i, cover_data in enumerate(cover_results):
             if isinstance(cover_data, dict) and cover_data:
                 out[i]["abs_cover_url"] = cover_data.get("cover_url")
                 out[i]["abs_item_id"] = cover_data.get("item_id")
+                if cover_data.get("cover_url"):
+                    covers_added += 1
+            elif isinstance(cover_data, Exception):
+                print(f"❌ Cover fetch exception for result {i}: {cover_data}", file=sys.stderr)
+
+        print(f"✅ Added {covers_added} cover URLs to search results", file=sys.stderr)
+    else:
+        if not ABS_BASE_URL or not ABS_API_KEY:
+            print(f"ℹ️  Skipping cover fetch: ABS not configured (URL={bool(ABS_BASE_URL)}, KEY={bool(ABS_API_KEY)})", file=sys.stderr)
+        elif not out:
+            print(f"ℹ️  Skipping cover fetch: no search results", file=sys.stderr)
 
     return JSONResponse({
         "results": out,
