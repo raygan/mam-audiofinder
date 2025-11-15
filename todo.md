@@ -1,0 +1,33 @@
+# Targeted UI & Cover Update Plan
+
+## 1. Dark Background With Maroon Accents
+- [ ] Define new palette tokens in `app/static/css/main.css`: `--bg-primary` (deep charcoal), `--bg-panel` (slightly lighter), `--accent-maroon`, `--accent-hover`.
+- [ ] Update `body`/`.app-shell` styles for dark gradient background and sufficient padding.
+- [ ] Restyle panels/cards (search, history, import modal) with translucent backgrounds, subtle borders, and maroon focus accents.
+- [ ] Adjust typography colors (headings, paragraphs, muted labels) for contrast on dark surfaces; verify WCAG AA levels.
+- [ ] Refresh button styles: primary buttons use maroon gradient, secondary buttons adopt charcoal outlines; ensure hover/focus states are visibly distinct.
+- [ ] Update templates to apply new utility classes (`text-subtle`, `panel`, etc.) so markup references centralized styles.
+- [ ] Capture before/after screenshots and confirm no bright background flashes remain.
+
+## 2. Audiobookshelf Cover Fetch & Caching
+- [ ] Add env vars to `.env.example`/`README.md` (`ABS_BASE_URL`, `ABS_API_KEY`, optional library ID) and extend `validate_env.py` with helpful warnings when missing.
+- [ ] Implement `fetch_abs_cover(title, author)` helper in `app/main.py` (or new module) that queries ABS API for closest match, returning cover URL + ABS book id.
+- [ ] Extend SQLite `history` table with nullable columns (`abs_book_id`, `abs_cover_url`, `abs_cover_cached_at`); ensure migration is idempotent.
+- [ ] On `/search`, after fetching MAM results, attempt ABS cover lookup per title/author (async gather to avoid blocking) and attach to response payload.
+- [ ] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
+- [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
+
+## 3. Display Covers With Grouped Searches
+- [ ] Update frontend search rendering to group torrents by normalized title (strip format tags, trim whitespace, casefold).
+- [ ] For each group render a single cover (prefer ABS cover, else fallback art) alongside group metadata (author, narrator).
+- [ ] Within the group, list individual torrent options (format, size, seeder counts) as rows or cards beneath the shared cover.
+- [ ] Ensure grouped layout remains responsive; on mobile stack cover above options, desktop uses side-by-side layout.
+- [ ] Add lazy-loading + placeholder shimmer for covers while requests resolve; display simple icon if no cover available.
+- [ ] Propagate cover URLs/history ids through “Add to qBittorrent” actions so modals/cards show consistent imagery.
+
+## Stretch Goal: Book Descriptions & Enhanced Search Options
+- [ ] When fetching ABS data, request synopsis/description fields; store them in DB (`abs_description`) and include in `/search` responses.
+- [ ] If ABS lacks descriptions, optionally query Audible (existing helper or new minimal fetch) for fallback blurbs; clearly label source.
+- [ ] Display description text beneath grouped results with collapse/expand behavior to avoid overly tall cards; respect dark theme readability.
+- [ ] Add searchable filters below description area (format tags, narrator, min seeders) so users can refine within the grouped context.
+- [ ] Document new capabilities in `README.md` and update screenshots once descriptions and grouped covers ship.
