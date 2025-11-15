@@ -6,7 +6,7 @@ import re
 import asyncio
 import logging
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from config import MAM_BASE, MAM_COOKIE, ABS_BASE_URL, ABS_API_KEY
@@ -113,39 +113,96 @@ async def search(payload: dict):
             "dl": item.get("dl"),
         })
 
-    # Fetch covers from Audiobookshelf (if configured)
-    if ABS_BASE_URL and ABS_API_KEY and out:
-        logger.info(f"📚 Fetching covers for {len(out)} search results...")
-        # Fetch covers in parallel for all results
-        cover_tasks = []
-        for result in out:
-            title = result.get("title") or ""
-            author = result.get("author_info") or ""
-            mam_id = result.get("id") or ""
-            cover_tasks.append(abs_client.fetch_cover(title, author, mam_id))
-
-        cover_results = await asyncio.gather(*cover_tasks, return_exceptions=True)
-
-        # Add cover URLs to results
-        covers_added = 0
-        for i, cover_data in enumerate(cover_results):
-            if isinstance(cover_data, dict) and cover_data:
-                out[i]["abs_cover_url"] = cover_data.get("cover_url")
-                out[i]["abs_item_id"] = cover_data.get("item_id")
-                if cover_data.get("cover_url"):
-                    covers_added += 1
-            elif isinstance(cover_data, Exception):
-                logger.error(f"❌ Cover fetch exception for result {i}: {cover_data}")
-
-        logger.info(f"✅ Added {covers_added} cover URLs to search results")
-    else:
-        if not ABS_BASE_URL or not ABS_API_KEY:
-            logger.info(f"ℹ️  Skipping cover fetch: ABS not configured (URL={bool(ABS_BASE_URL)}, KEY={bool(ABS_API_KEY)})")
-        elif not out:
-            logger.info(f"ℹ️  Skipping cover fetch: no search results")
+    # NOTE: We no longer fetch covers during search to avoid blocking.
+    # Covers are fetched progressively via the /api/covers/fetch endpoint.
+    logger.info(f"✅ Returning {len(out)} search results (covers will load progressively)")
 
     return JSONResponse({
         "results": out,
         "total": raw.get("total"),
         "total_found": raw.get("total_found"),
+    })
+
+
+@router.get("/api/covers/fetch")
+async def fetch_cover(
+    mam_id: str = Query(..., description="MAM torrent ID"),
+    title: str = Query("", description="Book title"),
+    author: str = Query("", description="Book author"),
+    max_retries: int = Query(2, description="Maximum number of retries")
+):
+    """
+    Fetch cover for a specific MAM ID with retry logic.
+    Returns immediately with cover URL or error.
+    """
+    if not ABS_BASE_URL or not ABS_API_KEY:
+        return JSONResponse({
+            "mam_id": mam_id,
+            "cover_url": None,
+            "item_id": None,
+            "error": "ABS not configured"
+        })
+
+    if not title:
+        return JSONResponse({
+            "mam_id": mam_id,
+            "cover_url": None,
+            "item_id": None,
+            "error": "No title provided"
+        })
+
+    # Retry logic with exponential backoff
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            if attempt > 0:
+                # Exponential backoff: 0.5s, 1s, 2s, etc.
+                wait_time = 0.5 * (2 ** (attempt - 1))
+                logger.info(f"🔄 Retry {attempt}/{max_retries} for '{title}' after {wait_time}s...")
+                await asyncio.sleep(wait_time)
+
+            result = await abs_client.fetch_cover(title, author, mam_id)
+
+            if result and result.get("cover_url"):
+                logger.info(f"✅ Cover fetch succeeded for '{title}' on attempt {attempt + 1}")
+                return JSONResponse({
+                    "mam_id": mam_id,
+                    "cover_url": result.get("cover_url"),
+                    "item_id": result.get("item_id"),
+                    "error": None
+                })
+            else:
+                # No cover found, but not an error - don't retry
+                logger.info(f"ℹ️  No cover found for '{title}'")
+                return JSONResponse({
+                    "mam_id": mam_id,
+                    "cover_url": None,
+                    "item_id": None,
+                    "error": "No cover found"
+                })
+
+        except httpx.ReadTimeout as e:
+            last_error = f"Timeout: {e}"
+            logger.warning(f"⏱️  Timeout fetching cover for '{title}' (attempt {attempt + 1}/{max_retries + 1})")
+            continue
+        except httpx.ConnectTimeout as e:
+            last_error = f"Connection timeout: {e}"
+            logger.warning(f"⏱️  Connection timeout for '{title}' (attempt {attempt + 1}/{max_retries + 1})")
+            continue
+        except httpx.HTTPError as e:
+            last_error = f"HTTP error: {e}"
+            logger.warning(f"❌ HTTP error fetching cover for '{title}': {e}")
+            continue
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            logger.error(f"❌ Unexpected error fetching cover for '{title}': {e}")
+            continue
+
+    # All retries exhausted
+    logger.error(f"❌ All {max_retries + 1} attempts failed for '{title}': {last_error}")
+    return JSONResponse({
+        "mam_id": mam_id,
+        "cover_url": None,
+        "item_id": None,
+        "error": last_error
     })
