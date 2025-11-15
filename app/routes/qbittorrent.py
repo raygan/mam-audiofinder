@@ -13,6 +13,7 @@ from config import (
 )
 from db import engine
 from qb_client import qb_login
+from torrent_helpers import extract_mam_id_from_tags
 
 router = APIRouter()
 logger = logging.getLogger("mam-audiofinder")
@@ -55,14 +56,24 @@ async def qb_torrents():
                 roots.add(name.split("/", 1)[0])
             root = (list(roots)[0] if roots else t.get("name") or "")
             single_file = len(files) == 1 and "/" not in (files[0].get("name") or "")
+
+            # Extract MAM ID from tags
+            tags = t.get("tags", "")
+            mam_id = extract_mam_id_from_tags(tags)
+
+            # Get content_path for better matching
+            content_path = t.get("content_path", "")
+
             out.append({
                 "hash": h,
                 "name": t.get("name"),
                 "save_path": t.get("save_path"),  # absolute host path, but we mounted /media so it should start with /media
+                "content_path": content_path,
                 "root": root,
                 "single_file": single_file,
                 "size": t.get("total_size"),
                 "added_on": t.get("added_on"),
+                "mam_id": mam_id,  # NEW: extracted from tags
             })
         return {"items": out}
 

@@ -395,6 +395,22 @@ async function loadHistory() {
         ? `<img src="${escapeHtml(h.abs_cover_url)}" alt="Cover" style="max-width: 60px; max-height: 90px; width: auto; height: auto; display: block;" loading="lazy" onerror="this.style.display='none'">`
         : '<span style="color: #666; font-size: 0.8em;">No cover</span>';
 
+      // Color-coded status display
+      const statusColor = h.qb_status_color || 'grey';
+      const colorMap = {
+        'grey': '#999',
+        'blue': '#3498db',
+        'yellow': '#f39c12',
+        'green': '#27ae60',
+        'red': '#e74c3c'
+      };
+      const statusStyle = `color: ${colorMap[statusColor] || '#999'}; font-weight: 500;`;
+
+      // Path warning indicator
+      const pathWarningIcon = h.path_warning
+        ? `<span style="color: #e74c3c; cursor: help; margin-left: 4px;" title="${escapeHtml(h.path_warning)}">⚠️</span>`
+        : '';
+
       tr.innerHTML = `
         <td style="padding: 0.25rem;">${coverHTML}</td>
         <td>${escapeHtml(h.title || '')}</td>
@@ -402,7 +418,7 @@ async function loadHistory() {
         <td>${escapeHtml(h.narrator || '')}</td>
         <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
         <td>${escapeHtml(when)}</td>
-        <td>${escapeHtml(h.qb_status || '')}</td>
+        <td><span style="${statusStyle}">${escapeHtml(h.qb_status || '')}</span>${pathWarningIcon}</td>
         <td></td>   <!-- Import -->
         <td></td>   <!-- Remove -->
       `;
@@ -468,18 +484,56 @@ importBtn.addEventListener('click', async () => {
   const st          = expTd.querySelector('.imp-status');
 
   // load torrents in our qB category
+  let torrents = [];
+  let matchedTorrent = null;
   try {
     const r = await fetch('/qb/torrents');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
+    torrents = j.items || [];
     sel.innerHTML = '';
-    (j.items || []).forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.hash;
-      opt.textContent = `${t.name}  —  ${t.single_file ? 'single-file' : (t.root || t.name)}`;
-      sel.appendChild(opt);
-    });
-    if (!sel.children.length) {
+
+    // Find matching torrent using priority: hash > mam_id > title
+    const historyHash = h.qb_hash;
+    const historyMamId = String(h.mam_id || '').trim();
+
+    if (torrents.length) {
+      // Try to match by hash first
+      if (historyHash) {
+        matchedTorrent = torrents.find(t => t.hash === historyHash);
+      }
+
+      // Fallback: match by mam_id
+      if (!matchedTorrent && historyMamId) {
+        matchedTorrent = torrents.find(t => String(t.mam_id || '').trim() === historyMamId);
+      }
+
+      // Populate dropdown with all torrents
+      torrents.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.hash;
+        opt.dataset.mamId = t.mam_id || '';
+        opt.dataset.contentPath = t.content_path || t.save_path || '';
+
+        // Mark matched torrent
+        const isMatched = matchedTorrent && t.hash === matchedTorrent.hash;
+        const matchSuffix = isMatched ? ' (MATCHED)' : '';
+        opt.textContent = `${t.name}  —  ${t.single_file ? 'single-file' : (t.root || t.name)}${matchSuffix}`;
+
+        if (isMatched) {
+          opt.selected = true;
+        }
+
+        sel.appendChild(opt);
+      });
+
+      // Show initial status message
+      if (matchedTorrent) {
+        st.innerHTML = '<span style="color: #27ae60;">✓ Torrent auto-selected based on match</span>';
+      } else if (historyHash || historyMamId) {
+        st.innerHTML = '<span style="color: #f39c12;">⚠️ No matching torrent found - please select manually</span>';
+      }
+    } else {
       const opt = document.createElement('option');
       opt.disabled = true; opt.selected = true;
       opt.textContent = 'No completed torrents in category';
@@ -489,6 +543,36 @@ importBtn.addEventListener('click', async () => {
     console.error(e);
     sel.innerHTML = '<option disabled selected>Failed to load torrents</option>';
   }
+
+  // Add validation when user changes torrent selection
+  sel.addEventListener('change', () => {
+    const selectedOption = sel.options[sel.selectedIndex];
+    const selectedMamId = selectedOption?.dataset.mamId || '';
+    const selectedContentPath = selectedOption?.dataset.contentPath || '';
+    const historyMamId = String(h.mam_id || '').trim();
+
+    let warnings = [];
+
+    // Check if selected torrent matches history item
+    if (historyMamId && selectedMamId !== historyMamId) {
+      const selectedName = selectedOption?.textContent?.split('—')[0].trim() || 'Unknown';
+      warnings.push(`<span style="color: #f39c12;">⚠️ This torrent does not match the history item</span><br>
+        <span style="font-size: 0.9em;">Selected: ${escapeHtml(selectedName)} | Expected: ${escapeHtml(h.title || 'Unknown')}</span>`);
+    }
+
+    // Check if torrent path seems valid (basic check - backend will validate properly)
+    if (selectedContentPath && !selectedContentPath.includes('/media/')) {
+      warnings.push(`<span style="color: #e74c3c;">❌ Torrent download dir does not match expected path - hardlink may fail</span>`);
+    }
+
+    if (warnings.length > 0) {
+      st.innerHTML = warnings.join('<br>');
+    } else if (historyMamId && selectedMamId === historyMamId) {
+      st.innerHTML = '<span style="color: #27ae60;">✓ Torrent matches history item</span>';
+    } else {
+      st.textContent = '';
+    }
+  });
 
   goBtn.addEventListener('click', async (ev) => {
     ev.preventDefault();
