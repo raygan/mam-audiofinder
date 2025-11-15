@@ -48,6 +48,7 @@ mam-audiofinder/
 │   ├── abs_client.py          # Audiobookshelf API client
 │   ├── covers.py              # CoverService class
 │   ├── qb_client.py           # qBittorrent API helpers
+│   ├── torrent_helpers.py     # Torrent state and matching helpers
 │   ├── utils.py               # Utility functions
 │   ├── routes/
 │   │   ├── __init__.py        # Routes aggregation
@@ -77,28 +78,43 @@ mam-audiofinder/
 
 ### Request Flow
 1. **User Interface** (index.html + app.js) → Frontend
-2. **FastAPI Endpoints** (main.py) → Backend API
+2. **FastAPI Endpoints** (routes/) → Backend API
 3. **External Services:**
    - MAM API (search, torrent download)
    - qBittorrent WebUI API (torrent management)
-4. **SQLite Database** (history.db) → Persistent storage
-5. **Filesystem Operations** → Import/copy/link files
+   - Audiobookshelf API (cover fetching, verification)
+4. **SQLite Databases:**
+   - history.db (torrent history, imports)
+   - covers.db (cover cache metadata)
+5. **Filesystem Operations:**
+   - Import/copy/link files
+   - Cover image caching
 
 ### Key Workflows
 
 #### 1. Search Workflow
 ```
-User Input → POST /search → MAM API → Parse Results → Display
+User Input → POST /search → MAM API → Parse Results → ABS Cover Fetch (async) → Display with Progressive Loading
 ```
 
 #### 2. Add to qBittorrent Workflow
 ```
-User Click → POST /add → Fetch .torrent → qBittorrent API → Save to DB
+User Click → POST /add → Fetch .torrent → qBittorrent API → Tag with MAM ID → Save to DB
 ```
 
 #### 3. Import Workflow
 ```
-User Import → POST /import → Validate Paths → Copy/Link/Move Files → Update Category → Mark Complete
+User Import → POST /import → Match Torrent (hash/tag/fuzzy) → Validate Paths → Analyze Structure → Copy/Link/Move Files → Update Category → Mark Complete
+```
+
+#### 4. Cover Caching Workflow
+```
+Cover Request → Check covers.db → If Miss: ABS API → Download Image → Save to /data/covers/ → Store Metadata → Return Local URL
+```
+
+#### 5. Torrent State Tracking
+```
+History View → GET /history → Fetch Live States (torrent_helpers) → Match to History Items → Display Status/Progress
 ```
 
 ## Key Files & Modules
@@ -123,7 +139,7 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 - Import behavior settings (link/copy/move)
 - UMASK application
 
-### `/app/db/db.py` (~90 lines)
+### `/app/db/db.py` (~130 lines)
 
 **Database management module:**
 - SQLAlchemy engine creation (history.db and covers.db)
@@ -148,7 +164,7 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 - Library item search for cover URLs
 - Integration with CoverService for caching
 
-### `/app/covers.py` (~220 lines)
+### `/app/covers.py` (~350 lines)
 
 **Cover management service:**
 - `CoverService` class for cover operations
@@ -156,6 +172,7 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 - Automatic cleanup when exceeding MAX_COVERS_SIZE_MB
 - Cover download with proper authentication
 - Database integration for cache lookups
+- Auto-healing for missing local files (redownload and relink)
 
 ### `/app/qb_client.py` (~20 lines)
 
@@ -163,7 +180,16 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 - Async and sync login functions
 - Session management
 
-### `/app/utils.py` (~70 lines)
+### `/app/torrent_helpers.py` (~220 lines)
+
+**Torrent state management and matching helpers:**
+- `map_qb_state_to_display()` - Convert qBittorrent state codes to user-friendly display text with color codes
+- `get_torrent_state()` - Fetch live torrent info from qBittorrent (state, progress, paths, etc.)
+- `validate_torrent_path()` - Check if torrent paths align with DL_DIR configuration
+- `extract_mam_id_from_tags()` - Extract MAM ID from qBittorrent tags for matching
+- `match_torrent_to_history()` - Find matching torrent for history item using hash, mam_id, or fuzzy title matching
+
+### `/app/utils.py` (~110 lines)
 
 **Utility functions:**
 - `sanitize()` - Filename sanitization
@@ -317,33 +343,41 @@ Import form now includes:
 4. Store metadata in covers database
 5. Return local URL (`/covers/{filename}`) or remote URL
 
-### `/app/static/app.js` (375 lines)
+### `/app/static/app.js` (~900 lines)
 
 **Frontend Logic:**
 
 #### Key Functions
 
-**`runSearch()` (lines 44-136)**
+**`runSearch()`**
 - Collects form inputs
 - POSTs to `/search`
-- Renders results table
+- Renders results table with progressive cover loading
 - Handles Add button functionality
 
-**`loadHistory()` (lines 156-375)**
+**`loadHistory()`**
 - Fetches `/history`
-- Renders history table
+- Renders history table with torrent state tracking
 - Creates expandable import forms
 - Handles Import and Remove buttons
+- Shows live torrent progress indicators
 
-**`escapeHtml(s)` (lines 139-144)**
+**`escapeHtml(s)`**
 - Prevents XSS by escaping HTML characters
 
-**`formatSize(sz)` (lines 146-154)**
+**`formatSize(sz)`**
 - Converts bytes to human-readable format (KB, MB, GB)
 
-#### Import Form Logic (lines 232-368)
+#### URL State Management
+- Push/replace state using browser History API
+- Parse query parameters on load to restore search state
+- Support shareable URLs with search terms and filters
+
+#### Import Form Logic
 - Dynamically loads completed torrents from `/qb/torrents`
 - Allows editing author/title before import
+- Tree view for file structure preview
+- Flatten checkbox with auto-detection for multi-disc audiobooks
 - Shows import statistics (files copied/linked/moved)
 - Updates UI status after successful import
 
@@ -684,7 +718,22 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Flatten UI with Tree View & Chapter Detector** (current)
+1. **Live Torrent State Tracking & Smart Import Matching** (current)
+   - Created `torrent_helpers.py` module with state management functions
+   - Real-time torrent status display in history view (downloading, seeding, progress %)
+   - User-friendly state mapping with color-coded indicators
+   - Smart torrent matching: by hash, MAM ID tags, or fuzzy title matching
+   - Path validation to detect mismatched qBittorrent/container paths
+   - Improved import reliability with better torrent identification
+
+2. **Shareable Search/History URLs** (commit 616a566)
+   - URL state management using browser History API
+   - Search parameters persist in URL query string
+   - Support for ?q=search&view=history to restore app state
+   - Shareable links for specific searches and history views
+   - Back/forward navigation respects URL state
+
+3. **Flatten UI with Tree View & Chapter Detector**
    - Added per-import flatten checkbox with auto-detection
    - New `/qb/torrent/{hash}/tree` endpoint for file structure analysis
    - Chapter detector automatically identifies multi-disc audiobooks
@@ -694,32 +743,48 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
    - Visual hints show disc count and recommendation
    - Import endpoint accepts per-request `flatten` parameter
 
-2. **Code Refactoring & Modularization** (v0.4.0)
+4. **Code Refactoring & Modularization** (v0.4.0)
    - Split monolithic main.py into modular components
-   - Created dedicated modules: config.py, db/, covers.py, abs_client.py, utils.py, qb_client.py
+   - Created dedicated modules: config.py, db/, covers.py, abs_client.py, utils.py, qb_client.py, torrent_helpers.py
    - Organized routes into routes/ package with separate files per domain
    - Implemented SQL migration system in db/migrations/
    - Wrapped cover logic in CoverService class
    - Improved code maintainability and testability
 
-3. **Hardlink Verification & Display** (commit 32616c9)
+5. **Audiobookshelf Cover Integration & Caching**
+   - Separate covers.db database for cover cache metadata
+   - Local filesystem caching in /data/covers/
+   - Progressive cover loading with skeleton placeholders
+   - Automatic cleanup when exceeding MAX_COVERS_SIZE_MB
+   - Auto-healing for missing local files (redownload and relink)
+   - Connection pooling for concurrent cover fetches
+
+6. **Centralized Log Rotation**
+   - Python logging module with RotatingFileHandler
+   - Configurable via LOG_MAX_FILES (default 5) and LOG_MAX_MB (default 5)
+   - Logs stored in /data/logs/app.log with automatic rotation
+   - Dual output to file (with timestamps) and stderr (for Docker)
+
+7. **Dark Theme with Maroon Accents**
+   - Complete UI redesign with dark gradient backgrounds
+   - Maroon accent colors for buttons and focus states
+   - Improved contrast and WCAG AA compliance
+   - Translucent panels with subtle borders
+   - Centralized CSS with utility classes
+
+8. **Hardlink Verification & Display** (commit 32616c9)
    - Added visual feedback showing whether files were hardlinked vs copied
    - Improved transparency in import process
 
-4. **FLATTEN_DISCS Feature** (commit 6dcdd84)
-   - Automatically reorganizes multi-disc audiobooks
-   - Solves Audiobookshelf compatibility issues
-   - Default enabled, configurable via env var
-
-5. **Import Validation** (commit 7c6e1c9)
+9. **Import Validation** (commit 7c6e1c9)
    - Fixed silent failures during import
    - Added clear error messages for missing paths
    - Validates source exists before attempting copy
 
-6. **Docker Permission Fixes** (commits 7a78a96, 041243d)
-   - Implemented proper PUID/PGID support
-   - Added startup validation for common errors
-   - Fixed GUID vs PGID typo issues
+10. **Docker Permission Fixes** (commits 7a78a96, 041243d)
+    - Implemented proper PUID/PGID support
+    - Added startup validation for common errors
+    - Fixed GUID vs PGID typo issues
 
 ### Known Limitations
 
@@ -1011,6 +1076,14 @@ sqlite> .quit
 ---
 
 ## Revision History
+
+- **2025-11-15 (Update):** Architecture documentation update
+  - Added torrent_helpers.py module documentation (~220 lines)
+  - Updated line counts for evolved modules (db.py, covers.py, utils.py, app.js)
+  - Enhanced Architecture & Data Flow with new workflows (cover caching, torrent state tracking)
+  - Added recent features: live torrent state tracking, shareable URLs, cover integration, log rotation, dark theme
+  - Updated codebase structure to reflect current modular organization
+  - Documented torrent matching strategies (hash, MAM ID tags, fuzzy matching)
 
 - **2025-11-15:** Initial CLAUDE.md creation based on codebase analysis
   - Documented all major components and workflows
