@@ -47,8 +47,8 @@
 - [ ] Document new capabilities in `README.md` and update screenshots once descriptions and grouped covers ship.
 
 ## 6. Code Cleanup & Progressive Search Rendering
-- [ ] Split `app/main.py` into smaller modules: `config.py` for env parsing, `db.py` for engine + migrations, `abs_client.py` for Audiobookshelf requests, `covers.py` for caching, and a `routes/` package for FastAPI endpoints. Keep `main.py` focused on bootstrapping.
-- [ ] Move schema-altering SQL out of runtime blocks and into simple migration scripts (e.g., `db/migrations/001_add_history_columns.sql`) executed at startup; document how to add new migrations.
-- [ ] Replace `print` debugging with the standard `logging` module plus rotating handlers so background tasks, cover services, and routes share consistent log formatting.
-- [ ] Wrap cover logic inside a `CoverService` class that exposes `get_cover`, `cache_cover`, and `refresh_cover` methods; inject it where needed to improve testability and avoid global state.
+- [x] Split `app/main.py` into smaller modules: `config.py` for env parsing, `db.py` for engine + migrations, `abs_client.py` for Audiobookshelf requests, `covers.py` for caching, and a `routes/` package for FastAPI endpoints. Keep `main.py` focused on bootstrapping.
+- [x] Move schema-altering SQL out of runtime blocks and into simple migration scripts (e.g., `db/migrations/001_add_history_columns.sql`) executed at startup; document how to add new migrations.
+- [x] Replace `print` debugging with the standard `logging` module plus rotating handlers so background tasks, cover services, and routes share consistent log formatting.
+- [x] Wrap cover logic inside a `CoverService` class that exposes `get_cover`, `cache_cover`, and `refresh_cover` methods; inject it where needed to improve testability and avoid global state.
 - [ ] Improve search UX by rendering textual rows immediately, showing skeleton placeholders for covers, then loading cover images asynchronously (IntersectionObserver + progressive updates) so users see results faster even on slow ABS responses.
