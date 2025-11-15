@@ -108,11 +108,11 @@
 
 ---
 
-## 10. Top-Level Task Bar
-- [ ] Add persistent task bar  
-- [ ] Extract to helper  
-- [ ] Design logs view  
-- [ ] Evaluate additional destinations  
+## ✔ 10. Top-Level Task Bar — *Completed*
+- [x] Add persistent task bar
+- [x] Extract to helper
+- [x] Design logs view
+- [x] Evaluate additional destinations  
 
 ---
 

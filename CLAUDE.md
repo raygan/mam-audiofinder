@@ -57,7 +57,8 @@ mam-audiofinder/
 │   │   ├── history.py         # History CRUD endpoints
 │   │   ├── qbittorrent.py     # qBittorrent and add endpoints
 │   │   ├── import_route.py    # Import endpoint
-│   │   └── covers_route.py    # Cover serving endpoint
+│   │   ├── covers_route.py    # Cover serving endpoint
+│   │   └── logs_route.py      # Logs viewing endpoint
 │   ├── static/
 │   │   ├── app.js             # Frontend JavaScript
 │   │   ├── css/               # Stylesheets (dark theme)
@@ -225,6 +226,9 @@ History View → GET /history → Fetch Live States (torrent_helpers) → Match 
 #### `routes/covers_route.py`
 - `GET /covers/{filename}` - Serve cached cover images
 
+#### `routes/logs_route.py`
+- `GET /api/logs` - Read application logs with filtering by level and line count
+
 ## API Endpoints
 
 | Route | Method | Purpose | Module |
@@ -240,6 +244,7 @@ History View → GET /history → Fetch Live States (torrent_helpers) → Match 
 | `/qb/torrent/{hash}/tree` | GET | Get torrent file tree with multi-disc detection | routes/qbittorrent.py |
 | `/import` | POST | Import to library | routes/import_route.py |
 | `/covers/{filename}` | GET | Serve cover image | routes/covers_route.py |
+| `/api/logs` | GET | Read application logs with filtering | routes/logs_route.py |
 
 ## Database Schemas
 
@@ -343,7 +348,7 @@ Import form now includes:
 4. Store metadata in covers database
 5. Return local URL (`/covers/{filename}`) or remote URL
 
-### `/app/static/app.js` (~900 lines)
+### `/app/static/app.js` (~1065 lines)
 
 **Frontend Logic:**
 
@@ -362,6 +367,19 @@ Import form now includes:
 - Handles Import and Remove buttons
 - Shows live torrent progress indicators
 
+**`showView(viewName)`**
+- Manages view switching between search, history, and logs
+- Updates active navigation button highlighting
+- Shows/hides appropriate cards
+- Handles smooth scrolling to active view
+
+**`loadLogs()`**
+- Fetches `/api/logs` with filtering parameters
+- Displays application logs with syntax highlighting
+- Supports filtering by log level (INFO, WARNING, ERROR)
+- Configurable line count (50-1000 lines)
+- Auto-scroll option for latest logs
+
 **`escapeHtml(s)`**
 - Prevents XSS by escaping HTML characters
 
@@ -371,7 +389,9 @@ Import form now includes:
 #### URL State Management
 - Push/replace state using browser History API
 - Parse query parameters on load to restore search state
-- Support shareable URLs with search terms and filters
+- Support shareable URLs with search terms, filters, and active view
+- URL parameter `?view=history` or `?view=logs` restores specific view
+- Back/forward navigation properly switches between all views
 
 #### Import Form Logic
 - Dynamically loads completed torrents from `/qb/torrents`
@@ -718,7 +738,21 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Live Torrent State Tracking & Smart Import Matching** (current)
+1. **Top-Level Task Bar with Logs View** (current)
+   - Added persistent navigation task bar at top of page
+   - Quick access buttons for Search, History, and Logs views
+   - Integrated health status indicator in task bar
+   - New `/api/logs` endpoint to read application logs
+   - Logs view with filtering by log level (INFO, WARNING, ERROR)
+   - Configurable log display (50-1000 lines)
+   - Auto-scroll option for logs
+   - Syntax highlighting for log levels
+   - URL state management for all views (search, history, logs)
+   - View switching helper function for clean navigation
+   - Sticky task bar with maroon accent styling
+   - Responsive design for mobile/desktop
+
+2. **Live Torrent State Tracking & Smart Import Matching**
    - Created `torrent_helpers.py` module with state management functions
    - Real-time torrent status display in history view (downloading, seeding, progress %)
    - User-friendly state mapping with color-coded indicators
