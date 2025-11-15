@@ -52,3 +52,14 @@
 - [x] Replace `print` debugging with the standard `logging` module plus rotating handlers so background tasks, cover services, and routes share consistent log formatting.
 - [x] Wrap cover logic inside a `CoverService` class that exposes `get_cover`, `cache_cover`, and `refresh_cover` methods; inject it where needed to improve testability and avoid global state.
 - [ ] Improve search UX by rendering textual rows immediately, showing skeleton placeholders for covers, then loading cover images asynchronously (IntersectionObserver + progressive updates) so users see results faster even on slow ABS responses.
+
+## 7. Upload Torrents to ABS for Better Matching
+  - [ ] Read the Audiobookshelf upload API (`POST /api/upload`) docs to understand required headers, JSON, and multipart fields.
+  - [ ] Add `.env` fields for `ABS_UPLOAD_LIBRARY_ID` and optional `ABS_PATH_MAP` (format `local:/abs`) so we can translate qBittorrent
+  save paths into ABS-accessible paths.
+  - [ ] Implement path translation helper that maps a local filesystem path (e.g., `/media/torrents/book`) to the ABS server path
+  (`/audiobooks/book`) using the map or defaults.
+  - [ ] Create a FastAPI endpoint or background job that, after import completion, calls the ABS upload API with the final file/folder,
+  library ID, and metadata. Handle failures with retries and structured logging.
+  - [ ] Store upload response (ABS item id/status) in the history table to avoid duplicate uploads and power UI indicators.
+  - [ ] Document the new feature (env config, ABS permissions, expected behavior) in README/AGENTS so users can enable it safely.
