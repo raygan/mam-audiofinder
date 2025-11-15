@@ -39,11 +39,19 @@ function updateURL(state, replace = false) {
 }
 
 function getCurrentState() {
+  // Determine current view based on visible cards
+  let currentView = '';
+  if (document.getElementById('historyCard')?.style.display === '') {
+    currentView = 'history';
+  } else if (document.getElementById('logsCard')?.style.display === '') {
+    currentView = 'logs';
+  }
+
   return {
     q: (q?.value || '').trim(),
     sort: (sortSel?.value) || 'default',
     perpage: (perpageSel?.value) || '25',
-    view: document.getElementById('historyCard').style.display === '' ? 'history' : ''
+    view: currentView
   };
 }
 
@@ -58,11 +66,171 @@ if (!urlState.q) {
   try {
     const r = await fetch('/health');
     const j = await r.json();
-    document.getElementById('health').textContent = j.ok ? 'OK' : 'Not OK';
+    const healthText = j.ok ? 'OK' : 'Not OK';
+    document.getElementById('health').textContent = healthText;
+
+    // Update task bar health indicator
+    const healthIndicator = document.getElementById('navHealth');
+    const healthDot = healthIndicator?.querySelector('.health-dot');
+    const healthTextEl = healthIndicator?.querySelector('.health-text');
+    if (healthIndicator && healthDot && healthTextEl) {
+      healthTextEl.textContent = healthText;
+      if (j.ok) {
+        healthIndicator.classList.add('ok');
+        healthIndicator.classList.remove('error');
+      } else {
+        healthIndicator.classList.add('error');
+        healthIndicator.classList.remove('ok');
+      }
+    }
   } catch {
     document.getElementById('health').textContent = 'Error';
+    const healthIndicator = document.getElementById('navHealth');
+    const healthTextEl = healthIndicator?.querySelector('.health-text');
+    if (healthIndicator && healthTextEl) {
+      healthTextEl.textContent = 'Error';
+      healthIndicator.classList.add('error');
+      healthIndicator.classList.remove('ok');
+    }
   }
 })();
+
+// ---------- View Management ----------
+const views = {
+  search: { card: null, navBtn: 'navSearch' },  // Search has no card, uses results table
+  history: { card: 'historyCard', navBtn: 'navHistory' },
+  logs: { card: 'logsCard', navBtn: 'navLogs' }
+};
+
+function showView(viewName) {
+  // Update active nav button
+  Object.values(views).forEach(view => {
+    const btn = document.getElementById(view.navBtn);
+    if (btn) btn.classList.remove('active');
+  });
+
+  const activeBtn = document.getElementById(views[viewName]?.navBtn);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  // Show/hide cards
+  Object.entries(views).forEach(([name, view]) => {
+    if (view.card) {
+      const card = document.getElementById(view.card);
+      if (card) {
+        card.style.display = (name === viewName) ? '' : 'none';
+      }
+    }
+  });
+
+  // Handle search view special case
+  if (viewName === 'search') {
+    // Don't hide results table, user might want to keep search results visible
+    // Just make sure the search form is visible
+  }
+
+  // Scroll to appropriate section
+  if (viewName !== 'search') {
+    const card = document.getElementById(views[viewName]?.card);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
+// ---------- Task Bar Navigation ----------
+document.getElementById('navSearch')?.addEventListener('click', () => {
+  showView('search');
+  updateURL({ ...getCurrentState(), view: '' }, true);
+  if (q) q.focus();
+});
+
+document.getElementById('navHistory')?.addEventListener('click', async () => {
+  showView('history');
+  await loadHistory();
+  updateURL({ ...getCurrentState(), view: 'history' }, true);
+});
+
+document.getElementById('navLogs')?.addEventListener('click', async () => {
+  showView('logs');
+  await loadLogs();
+  updateURL({ ...getCurrentState(), view: 'logs' }, true);
+});
+
+// ---------- Logs View ----------
+async function loadLogs() {
+  const logsContent = document.getElementById('logsContent');
+  const logLevel = document.getElementById('logLevel')?.value || '';
+  const logLines = parseInt(document.getElementById('logLines')?.value || '100', 10);
+  const autoScroll = document.getElementById('autoScrollLogs')?.checked;
+
+  if (!logsContent) return;
+
+  try {
+    logsContent.textContent = 'Loading logs...';
+
+    const params = new URLSearchParams({
+      lines: logLines.toString(),
+      level: logLevel
+    });
+
+    const resp = await fetch(`/api/logs?${params}`);
+    if (!resp.ok) {
+      logsContent.textContent = `Error loading logs: HTTP ${resp.status}`;
+      return;
+    }
+
+    const data = await resp.json();
+
+    if (!data.ok) {
+      logsContent.textContent = `Error: ${data.error || 'Unknown error'}`;
+      return;
+    }
+
+    if (!data.logs || data.logs.length === 0) {
+      logsContent.textContent = 'No logs found.';
+      return;
+    }
+
+    // Display logs with basic syntax highlighting
+    const logsText = data.logs.join('');
+    logsContent.innerHTML = highlightLogs(logsText);
+
+    // Auto-scroll to bottom if enabled
+    if (autoScroll) {
+      const container = document.getElementById('logsContainer');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+  } catch (error) {
+    console.error('Error loading logs:', error);
+    logsContent.textContent = `Error loading logs: ${error.message}`;
+  }
+}
+
+function highlightLogs(text) {
+  // Basic syntax highlighting for log levels
+  return escapeHtml(text)
+    .replace(/\b(INFO)\b/g, '<span class="log-info">$1</span>')
+    .replace(/\b(WARNING)\b/g, '<span class="log-warning">$1</span>')
+    .replace(/\b(ERROR)\b/g, '<span class="log-error">$1</span>');
+}
+
+// Logs controls
+document.getElementById('refreshLogsBtn')?.addEventListener('click', async () => {
+  await loadLogs();
+});
+
+document.getElementById('logLevel')?.addEventListener('change', async () => {
+  await loadLogs();
+});
+
+document.getElementById('logLines')?.addEventListener('change', async () => {
+  await loadLogs();
+});
 
 // ---------- Show History (even without searching) ----------
 if (showHistoryBtn) {
@@ -855,11 +1023,13 @@ importBtn.addEventListener('click', async () => {
     await runSearch();
   }
 
-  // Auto-open history if view=history
+  // Auto-open view based on URL parameter
   if (state.view === 'history') {
-    const card = document.getElementById('historyCard');
-    card.style.display = '';
+    showView('history');
     await loadHistory();
+  } else if (state.view === 'logs') {
+    showView('logs');
+    await loadLogs();
   }
 })();
 
@@ -882,14 +1052,14 @@ window.addEventListener('popstate', async (event) => {
     statusEl.textContent = '';
   }
 
-  // Toggle history view based on URL
-  const card = document.getElementById('historyCard');
+  // Switch to appropriate view based on URL
   if (state.view === 'history') {
-    card.style.display = '';
+    showView('history');
     await loadHistory();
-    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } else {
-    // Don't hide history if it's already visible - user might want it open
-    // card.style.display = 'none';
+  } else if (state.view === 'logs') {
+    showView('logs');
+    await loadLogs();
+  } else if (state.view === '' && state.q === '') {
+    showView('search');
   }
 });

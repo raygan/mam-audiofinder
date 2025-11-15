@@ -12,6 +12,23 @@
   <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
+  <nav class="task-bar">
+    <button id="navSearch" class="nav-btn active" title="Search for audiobooks">
+      🔍 Search
+    </button>
+    <button id="navHistory" class="nav-btn" title="View download history and imports">
+      📋 History
+    </button>
+    <button id="navLogs" class="nav-btn" title="View application logs">
+      📄 Logs
+    </button>
+    <div class="task-bar-spacer"></div>
+    <span id="navHealth" class="health-indicator" title="Application health status">
+      <span class="health-dot"></span>
+      <span class="health-text">Checking...</span>
+    </span>
+  </nav>
+
   <header>
     <h1>📚 Audiobook Finder</h1>
     <span class="muted">Download Audiobooks and Import to Audiobookshelf</span>
@@ -73,11 +90,33 @@
       </table>
     </div>
 
-    <p class="muted">Health check: <code id="health">…</code></p>
-  </div>
-  <div style="margin-left:auto">
-    <button id="showHistoryBtn" title="Show download history">History & Import</button>
-  </div>
+    <div id="logsCard" class="card" style="margin-top:1rem; display:none">
+      <div class="logs-header">
+        <h3>Application Logs</h3>
+        <div class="logs-controls">
+          <select id="logLevel">
+            <option value="">All Levels</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <select id="logLines">
+            <option value="50">50 lines</option>
+            <option value="100" selected>100 lines</option>
+            <option value="250">250 lines</option>
+            <option value="500">500 lines</option>
+            <option value="1000">1000 lines</option>
+          </select>
+          <button id="refreshLogsBtn" class="primary">🔄 Refresh</button>
+          <label>
+            <input type="checkbox" id="autoScrollLogs" checked> Auto-scroll
+          </label>
+        </div>
+      </div>
+      <div id="logsContainer" class="logs-container">
+        <pre id="logsContent">Loading logs...</pre>
+      </div>
+    </div>
 
   <script src="/static/app.js?v=3" defer></script>
 </body>
