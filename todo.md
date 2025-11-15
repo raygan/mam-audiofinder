@@ -60,6 +60,7 @@
 ## 5. Display Covers With Grouped Searches (“Showcase” Mode)
 - [ ] Create a new helper function for showcase_mode
 - [ ] Create new page link from toolbar that shows showcase mode
+- [ ] use existing .sql databases or expand if necessary
 - [ ] Add a search window from 'search bar' (default 100 results)
 - [ ] Group searches by normalized title in audible style grid instead of a list table
 - [ ] Render shared cover
