@@ -3,7 +3,10 @@ Utility functions for MAM Audiobook Finder.
 """
 import re
 import os
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("mam-audiofinder")
 
 
 def sanitize(name: str) -> str:
@@ -63,10 +66,42 @@ def extract_disc_track(path: Path, root: Path) -> tuple[int, int, str]:
     return (disc_num, track_num, ext)
 
 
-def try_hardlink(src: Path, dst: Path):
-    """Try to create hardlink, return True on success."""
+def try_hardlink(src: Path, dst: Path) -> bool:
+    """
+    Try to create hardlink, return True on success.
+    Logs detailed error information if linking fails.
+    """
     try:
+        # Get filesystem info for debugging
+        src_stat = src.stat()
+        src_dev = src_stat.st_dev
+
+        # Get parent directory's filesystem (dst doesn't exist yet)
+        dst_parent_dev = dst.parent.stat().st_dev
+
+        # Check if they're on the same filesystem before attempting
+        if src_dev != dst_parent_dev:
+            logger.warning(
+                f"Hardlink skipped (different filesystems): {src} -> {dst}. "
+                f"Source device: {src_dev}, Dest parent device: {dst_parent_dev}. "
+                f"Falling back to copy."
+            )
+            return False
+
+        # Attempt the hardlink
         os.link(src, dst)
+        logger.info(f"✓ Hardlinked: {src.name}")
         return True
-    except Exception:
+
+    except OSError as e:
+        logger.warning(
+            f"Hardlink failed (falling back to copy): {src.name}. "
+            f"Error: {e.errno} - {e.strerror}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(
+            f"Unexpected error during hardlink: {src.name}. "
+            f"Error: {e.__class__.__name__}: {e}"
+        )
         return False
