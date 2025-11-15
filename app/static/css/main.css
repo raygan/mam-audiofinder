@@ -10,9 +10,9 @@
   --bg-panel-hover: #2a2a2a;    /* Panel hover state */
 
   /* Maroon accent colors */
-  --accent-maroon: #8b2635;     /* Primary maroon */
-  --accent-maroon-dark: #6b1d28; /* Darker maroon for hover */
-  --accent-maroon-light: #a73545; /* Lighter maroon for highlights */
+  --accent-maroon: #500000;     /* Primary maroon */
+  --accent-maroon-dark: #3a0000; /* Darker maroon for hover */
+  --accent-maroon-light: #6a0000; /* Lighter maroon for highlights */
 
   /* Text colors */
   --text-primary: #e8e8e8;      /* Primary text */
@@ -301,6 +301,20 @@ a:hover {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   margin: 6px 0;
+}
+
+.imp-tree-view {
+  display: none;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--accent-maroon);
+  border: 1px solid var(--accent-maroon-light);
+  border-radius: var(--radius-sm);
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--text-primary);
 }
 
 .import-form > div {

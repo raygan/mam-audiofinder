@@ -460,7 +460,7 @@ importBtn.addEventListener('click', async () => {
   }
 
   expTd.innerHTML = `
-    <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
+    <div class="import-form">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <span>Import:</span>
         <span>/</span>
@@ -481,7 +481,7 @@ importBtn.addEventListener('click', async () => {
         <button class="imp-view-files" style="font-size:0.9em;">📁 View Files</button>
         <span class="imp-detection-hint" style="font-size:0.9em;color:#666;"></span>
       </div>
-      <div class="imp-tree-view" style="display:none;margin-top:8px;padding:8px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:4px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:0.85em;"></div>
+      <div class="imp-tree-view" style="display:none;"></div>
       <div class="imp-status" style="margin-top:6px;color:#666;"></div>
     </div>
   `;
