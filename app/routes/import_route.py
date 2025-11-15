@@ -65,10 +65,25 @@ def do_import(body: ImportBody):
         # files (used to detect single-file)
         fr = c.get(f"{QB_URL}/api/v2/torrents/files", params={"hash": h})
         if fr.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"qB files failed: {fr.status_code}")
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"[QB-001] Cannot connect to qBittorrent\n"
+                    f"API endpoint: {QB_URL}/api/v2/torrents/files\n"
+                    f"Status code: {fr.status_code}\n"
+                    f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#qb-001-cannot-connect-to-qbittorrent"
+                )
+            )
         files = fr.json()
         if not files:
-            raise HTTPException(status_code=404, detail="No files found for torrent")
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[IMPORT-002] No files found for torrent\n"
+                    f"Torrent hash: {h}\n"
+                    f"The torrent may not exist or may have been removed."
+                )
+            )
 
         # properties (optional save_path)
         pr = c.get(f"{QB_URL}/api/v2/torrents/properties", params={"hash": h})
@@ -82,7 +97,14 @@ def do_import(body: ImportBody):
         info = info_list[0] if isinstance(info_list, list) and info_list else {}
         content_path = info.get("content_path") or ""
         if not content_path:
-            raise HTTPException(status_code=404, detail="Torrent content path not found")
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[IMPORT-003] Torrent content path not found\n"
+                    f"Torrent hash: {h}\n"
+                    f"qBittorrent may not have metadata for this torrent."
+                )
+            )
 
     # map qB's internal paths to this container's paths
     def map_qb_path(p: str) -> str:
@@ -101,13 +123,29 @@ def do_import(body: ImportBody):
     if not src_root.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Source path not found: {src_root}. content_path from qB: {content_path}"
+            detail=(
+                f"[PATH-MISMATCH-001] Source path not found\n"
+                f"Container path: {src_root}\n"
+                f"qBittorrent reports: {content_path}\n"
+                f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#path-mismatch-001-source-path-not-found"
+            )
         )
 
     # Destination: /library/Author/Title[/...]
     lib = Path(LIB_DIR)
     author_dir = lib / author
-    author_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        author_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"[PATH-MISMATCH-002] Cannot write to library directory\n"
+                f"Directory: {author_dir}\n"
+                f"Error: {str(e)}\n"
+                f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#path-mismatch-002-lib_dir-not-accessible"
+            )
+        )
     dest_dir = next_available(author_dir / title)
 
     # Copy/link all (skip .cue) and count files
@@ -116,7 +154,14 @@ def do_import(body: ImportBody):
     files_moved = 0
     if src_root.is_file():
         if src_root.suffix.lower() == ".cue":
-            raise HTTPException(status_code=400, detail="Only .cue file found; nothing to import")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"[IMPORT-001] No audio files found to import\n"
+                    f"Only .cue file found: {src_root.name}\n"
+                    f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#import-001-no-audio-files-found"
+                )
+            )
         action = copy_one(src_root, dest_dir / src_root.name)
         files_copied = 1
         if action == "linked":
@@ -172,7 +217,12 @@ def do_import(body: ImportBody):
     if files_copied == 0:
         raise HTTPException(
             status_code=400,
-            detail=f"No audio files found to import in {src_root}. Found only .cue files or directory is empty."
+            detail=(
+                f"[IMPORT-001] No audio files found to import\n"
+                f"Directory: {src_root}\n"
+                f"Found only .cue files or directory is empty.\n"
+                f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#import-001-no-audio-files-found"
+            )
         )
 
     # --- post-import: clear or change category so it disappears from our list ---
