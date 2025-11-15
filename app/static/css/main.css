@@ -1,0 +1,384 @@
+/* ========================================
+   MAM Audiobook Finder - Dark Theme Styles
+   ======================================== */
+
+/* Color Palette - Dark Background with Maroon Accents */
+:root {
+  /* Primary backgrounds */
+  --bg-primary: #1a1a1a;        /* Deep charcoal */
+  --bg-panel: #242424;          /* Slightly lighter charcoal */
+  --bg-panel-hover: #2a2a2a;    /* Panel hover state */
+
+  /* Maroon accent colors */
+  --accent-maroon: #8b2635;     /* Primary maroon */
+  --accent-maroon-dark: #6b1d28; /* Darker maroon for hover */
+  --accent-maroon-light: #a73545; /* Lighter maroon for highlights */
+
+  /* Text colors */
+  --text-primary: #e8e8e8;      /* Primary text */
+  --text-secondary: #b8b8b8;    /* Secondary text */
+  --text-subtle: #888888;       /* Muted/subtle text */
+  --text-link: #9faed6;         /* Links */
+
+  /* Border colors */
+  --border-default: #3a3a3a;    /* Standard borders */
+  --border-focus: var(--accent-maroon); /* Focus state */
+  --border-subtle: #2a2a2a;     /* Subtle borders */
+
+  /* Input colors */
+  --input-bg: #2a2a2a;          /* Input backgrounds */
+  --input-border: #3a3a3a;      /* Input borders */
+  --input-focus: var(--accent-maroon); /* Input focus */
+
+  /* Button colors */
+  --btn-primary-bg: linear-gradient(135deg, var(--accent-maroon) 0%, var(--accent-maroon-dark) 100%);
+  --btn-primary-hover: linear-gradient(135deg, var(--accent-maroon-light) 0%, var(--accent-maroon) 100%);
+  --btn-secondary-bg: transparent;
+  --btn-secondary-border: #4a4a4a;
+
+  /* Status colors */
+  --success: #2d7a3e;
+  --warning: #b87333;
+  --error: #a83232;
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 0;
+  padding: var(--spacing-xl);
+  background: linear-gradient(135deg, #0f0f0f 0%, var(--bg-primary) 50%, #0f0f0f 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* Typography */
+h1 {
+  font-size: 1.4rem;
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+h3 {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+code {
+  background: var(--bg-panel);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: 'Courier New', monospace;
+  color: var(--accent-maroon-light);
+}
+
+/* Header */
+header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Cards/Panels */
+.card {
+  background: rgba(36, 36, 36, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  max-width: 1100px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+/* Layout */
+.row {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Form Elements */
+input[type="text"],
+input[type="search"] {
+  flex: 1;
+  min-width: 260px;
+  padding: 0.6rem;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(139, 38, 53, 0.2);
+}
+
+input[type="text"]::placeholder,
+input[type="search"]::placeholder {
+  color: var(--text-subtle);
+}
+
+select {
+  padding: 0.6rem;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 3px rgba(139, 38, 53, 0.2);
+}
+
+/* Import form specific styles */
+.import-form input,
+.import-form select {
+  padding: 4px 6px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.import-form button {
+  padding: 4px 10px;
+}
+
+/* Buttons */
+button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-panel-hover);
+  border-color: var(--accent-maroon);
+  transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Primary buttons (submit, import, etc.) */
+button[type="submit"],
+button.primary {
+  background: var(--btn-primary-bg);
+  border-color: transparent;
+  color: white;
+}
+
+button[type="submit"]:hover:not(:disabled),
+button.primary:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+  border-color: transparent;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--spacing-md);
+}
+
+th {
+  padding: var(--spacing-sm);
+  border-bottom: 2px solid var(--border-default);
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+}
+
+td {
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+tr:hover {
+  background: rgba(42, 42, 42, 0.3);
+}
+
+tr.empty td {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--text-subtle);
+}
+
+/* Table alignment utilities */
+.right {
+  text-align: right;
+}
+
+.center {
+  text-align: center;
+}
+
+/* Text utilities */
+.muted {
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+}
+
+.text-subtle {
+  color: var(--text-subtle);
+}
+
+/* Links */
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: var(--accent-maroon-light);
+  text-decoration: underline;
+}
+
+/* Status indicator */
+#status {
+  margin-top: var(--spacing-sm);
+  min-height: 1.2em;
+}
+
+/* Import form styling */
+.import-form {
+  padding: 8px;
+  background: rgba(26, 26, 26, 0.5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  margin: 6px 0;
+}
+
+.import-form > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.import-form .imp-status {
+  margin-top: 6px;
+  color: var(--text-subtle);
+  font-size: 0.9rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  body {
+    padding: var(--spacing-md);
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  input[type="text"],
+  input[type="search"] {
+    min-width: 100%;
+  }
+
+  button {
+    width: 100%;
+  }
+
+  table {
+    font-size: 0.9rem;
+  }
+
+  th, td {
+    padding: var(--spacing-xs);
+  }
+}
+
+/* Loading states */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.loading {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Focus visible for accessibility */
+:focus-visible {
+  outline: 2px solid var(--accent-maroon);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling for webkit browsers */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--accent-maroon);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-maroon-light);
+}

@@ -1,12 +1,12 @@
 # Targeted UI & Cover Update Plan
 
 ## 1. Dark Background With Maroon Accents
-- [ ] Define new palette tokens in `app/static/css/main.css`: `--bg-primary` (deep charcoal), `--bg-panel` (slightly lighter), `--accent-maroon`, `--accent-hover`.
-- [ ] Update `body`/`.app-shell` styles for dark gradient background and sufficient padding.
-- [ ] Restyle panels/cards (search, history, import modal) with translucent backgrounds, subtle borders, and maroon focus accents.
-- [ ] Adjust typography colors (headings, paragraphs, muted labels) for contrast on dark surfaces; verify WCAG AA levels.
-- [ ] Refresh button styles: primary buttons use maroon gradient, secondary buttons adopt charcoal outlines; ensure hover/focus states are visibly distinct.
-- [ ] Update templates to apply new utility classes (`text-subtle`, `panel`, etc.) so markup references centralized styles.
+- [x] Define new palette tokens in `app/static/css/main.css`: `--bg-primary` (deep charcoal), `--bg-panel` (slightly lighter), `--accent-maroon`, `--accent-hover`.
+- [x] Update `body`/`.app-shell` styles for dark gradient background and sufficient padding.
+- [x] Restyle panels/cards (search, history, import modal) with translucent backgrounds, subtle borders, and maroon focus accents.
+- [x] Adjust typography colors (headings, paragraphs, muted labels) for contrast on dark surfaces; verify WCAG AA levels.
+- [x] Refresh button styles: primary buttons use maroon gradient, secondary buttons adopt charcoal outlines; ensure hover/focus states are visibly distinct.
+- [x] Update templates to apply new utility classes (`text-subtle`, `panel`, etc.) so markup references centralized styles.
 - [ ] Capture before/after screenshots and confirm no bright background flashes remain.
 
 ## 2. Audiobookshelf Cover Fetch & Caching
