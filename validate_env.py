@@ -65,6 +65,53 @@ def validate_env():
             "      Cover images will not be fetched. This is optional."
         )
 
+    # Check logging configuration
+    log_max_mb = os.getenv("LOG_MAX_MB")
+    log_max_files = os.getenv("LOG_MAX_FILES")
+
+    if log_max_mb:
+        try:
+            max_mb = int(log_max_mb)
+            if max_mb <= 0:
+                warnings.append(
+                    f"WARNING: LOG_MAX_MB is set to {max_mb} which will disable log rotation.\n"
+                    "         Logs may grow indefinitely. Recommended value: 5 or higher."
+                )
+            elif max_mb > 100:
+                warnings.append(
+                    f"WARNING: LOG_MAX_MB is set to {max_mb}MB which is very large.\n"
+                    "         Each log file can grow up to this size. Recommended value: 5-20."
+                )
+        except ValueError:
+            errors.append(
+                f"ERROR: Invalid LOG_MAX_MB value '{log_max_mb}'.\n"
+                f"       LOG_MAX_MB must be a positive integer (megabytes)."
+            )
+
+    if log_max_files:
+        try:
+            max_files = int(log_max_files)
+            if max_files < 0:
+                errors.append(
+                    f"ERROR: Invalid LOG_MAX_FILES value '{max_files}'.\n"
+                    f"       LOG_MAX_FILES must be a non-negative integer."
+                )
+            elif max_files == 0:
+                warnings.append(
+                    "WARNING: LOG_MAX_FILES is set to 0 which will disable log rotation.\n"
+                    "         Only the current log file will be kept. Recommended value: 5 or higher."
+                )
+            elif max_files > 50:
+                warnings.append(
+                    f"WARNING: LOG_MAX_FILES is set to {max_files} which will keep many log files.\n"
+                    "         This may use significant disk space. Recommended value: 5-10."
+                )
+        except ValueError:
+            errors.append(
+                f"ERROR: Invalid LOG_MAX_FILES value '{log_max_files}'.\n"
+                f"       LOG_MAX_FILES must be a non-negative integer."
+            )
+
     # Print results
     if warnings:
         print("\n".join(warnings), file=sys.stderr)

@@ -18,11 +18,11 @@
 - [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
 
 ## 3. Centralized Log Rotation (Default 5 Files)
-- [ ] Decide on log destination (e.g., `/data/logs/app.log`) and ensure directory exists/mounted in Docker.
-- [ ] Replace ad-hoc `print` statements with Python's `logging` module; create logger in `app/main.py` configured with `RotatingFileHandler`.
-- [ ] Set default `LOG_MAX_FILES=5` and `LOG_MAX_MB=5` via env vars (`.env.example`, `validate_env.py`) while allowing overrides.
-- [ ] Ensure console logging still works for Docker (attach `StreamHandler`) and that rotation is shared across background tasks.
-- [ ] Document rotation behavior in README + AGENTS and CLAUDE, including instructions for log collection in container setups.
+- [x] Decide on log destination (e.g., `/data/logs/app.log`) and ensure directory exists/mounted in Docker.
+- [x] Replace ad-hoc `print` statements with Python's `logging` module; create logger in `app/main.py` configured with `RotatingFileHandler`.
+- [x] Set default `LOG_MAX_FILES=5` and `LOG_MAX_MB=5` via env vars (`.env.example`, `validate_env.py`) while allowing overrides.
+- [x] Ensure console logging still works for Docker (attach `StreamHandler`) and that rotation is shared across background tasks.
+- [x] Document rotation behavior in README + AGENTS and CLAUDE, including instructions for log collection in container setups.
 
 ## 4. Sharable Search/History URLs
 - [ ] Define URL schema (e.g., `?q=term&sort=seedersDesc&view=history`) supporting search query, filters, and optional history view toggle.
