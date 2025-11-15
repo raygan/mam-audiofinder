@@ -13,8 +13,9 @@
 - [x] Add env vars to `.env.example`/`README.md` (`ABS_BASE_URL`, `ABS_API_KEY`, optional library ID) and extend `validate_env.py` with helpful warnings when missing.
 - [x] Implement `fetch_abs_cover(title, author)` helper in `app/main.py` (or new module) that queries ABS API for closest match, returning cover URL + ABS book id.
 - [x] Extend SQLite `history` table with nullable columns (`abs_item_id`, `abs_cover_url`, `abs_cover_cached_at`); ensure migration is idempotent.
-- [x] On `/search`, after fetching MAM results, attempt ABS cover lookup per title/author (async gather to avoid blocking) and attach to response payload.
+- [ ] Surface ABS cover metadata (URL + item id) from the progressive fetch flow back into each search row so Add-to-qB posts can include it.
 - [x] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
+- [ ] Ensure `/api/covers/fetch` + `CoverService` expose item ids/cover paths to the client state so history rows store the freshly fetched art without another lookup.
 - [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
 
 ## 3. Centralized Log Rotation (Default 5 Files)
@@ -31,20 +32,14 @@
 - [x] Handle back/forward navigation by listening to `popstate` and re-running searches/history toggles so the URL stays authoritative.
 - [x] Reflect additional filters (when grouping arrives) in the query string to keep shared links accurate.
 
-## 5. Display Covers With Grouped Searches
-- [ ] Update frontend search rendering to group torrents by normalized title (strip format tags, trim whitespace, casefold).
-- [ ] For each group render a single cover (prefer ABS cover, else fallback art) alongside group metadata (author, narrator).
-- [ ] Within the group, list individual torrent options (format, size, seeder counts) as rows or cards beneath the shared cover.
-- [ ] Ensure grouped layout remains responsive; on mobile stack cover above options, desktop uses side-by-side layout.
-- [ ] Add lazy-loading + placeholder shimmer for covers while requests resolve; display simple icon if no cover available.
-- [ ] Propagate cover URLs/history ids through “Add to qBittorrent” actions so modals/cards show consistent imagery.
-
-## Stretch Goal: Book Descriptions & Enhanced Search Options
-- [ ] When fetching ABS data, request synopsis/description fields; store them in DB (`abs_description`) and include in `/search` responses.
-- [ ] If ABS lacks descriptions, optionally query Audible (existing helper or new minimal fetch) for fallback blurbs; clearly label source.
-- [ ] Display description text beneath grouped results with collapse/expand behavior to avoid overly tall cards; respect dark theme readability.
-- [ ] Add searchable filters below description area (format tags, narrator, min seeders) so users can refine within the grouped context.
-- [ ] Document new capabilities in `README.md` and update screenshots once descriptions and grouped covers ship.
+## 5. Display Covers With Grouped Searches (Alternate “Showcase” Mode)
+- [ ] Add a results mode selector (default “List” = current table, alternate “Showcase” = grouped layout) and persist the choice in the URL params.
+- [ ] Update frontend search rendering for Showcase mode to group torrents by normalized title (strip format tags, trim whitespace, casefold).
+- [ ] For each Showcase group, render a single cover (prefer ABS cover, else fallback art) alongside group metadata (author, narrator).
+- [ ] Within each group, list individual torrent options (format, size, seeder counts) as rows or cards beneath the shared cover.
+- [ ] Ensure the Showcase layout remains responsive; on mobile stack cover above options, desktop uses side-by-side layout.
+- [ ] Add lazy-loading + placeholder shimmer for showcase covers while requests resolve; display simple icon if no cover available.
+- [ ] Propagate cover URLs/history ids through “Add to qBittorrent” actions so modals/cards show consistent imagery across both List and Showcase modes.
 
 ## 6. Code Cleanup & Progressive Search Rendering
 - [x] Split `app/main.py` into smaller modules: `config.py` for env parsing, `db.py` for engine + migrations, `abs_client.py` for Audiobookshelf requests, `covers.py` for caching, and a `routes/` package for FastAPI endpoints. Keep `main.py` focused on bootstrapping.
@@ -63,3 +58,26 @@
   library ID, and metadata. Handle failures with retries and structured logging.
   - [ ] Store upload response (ABS item id/status) in the history table to avoid duplicate uploads and power UI indicators.
   - [ ] Document the new feature (env config, ABS permissions, expected behavior) in README/AGENTS so users can enable it safely.
+
+## 8. Metadata & Testing Prep
+- [ ] Add a migration for `abs_description` (plus optional `abs_description_source`) and plumb it through `/search` + `/history` responses.
+- [ ] Extend `AudiobookshelfClient` to fetch description/synopsis fields (e.g., `/api/items/{id}`) so the stretch goal has raw data available.
+- [ ] Introduce a `tests/` package with coverage for search payload construction and cover caching to keep regressions visible.
+- [ ] Document the progressive cover workflow in `README.md` so future contributors understand how metadata flows from ABS → cache → UI.
+
+## 9. ABS Metadata Delivery Strategy
+- [ ] Prototype feeding Audiobookshelf book metadata via a generated `metadata.json` alongside imported files; validate what fields ABS honors.
+- [ ] Compare that with calling the ABS upload endpoint directly for metadata injection to determine which path keeps data fresher and simpler.
+- [ ] Document the chosen approach (and trade-offs) so future ABS uploads keep descriptions, narrators, and cover hints in sync.
+
+## 10. Top-Level Task Bar
+- [ ] Add a persistent task bar/nav strip at the top of the app that exposes quick toggles for History and a new Logs panel.
+- [ ] Design the Logs view hook so it can surface recent rotating log entries (or link out) without overwhelming the main screen.
+- [ ] Evaluate whether other destinations (Settings, Covers cache status, ABS health) belong in the task bar and document the final scope.
+
+## Stretch Goal: Book Descriptions & Enhanced Search Options
+- [ ] When fetching ABS data, request synopsis/description fields; store them in DB (`abs_description`) and include in `/search` responses.
+- [ ] If ABS lacks descriptions, optionally query Audible (existing helper or new minimal fetch) for fallback blurbs; clearly label source.
+- [ ] Display description text beneath grouped results with collapse/expand behavior to avoid overly tall cards; respect dark theme readability.
+- [ ] Add searchable filters below description area (format tags, narrator, min seeders) so users can refine within the grouped context.
+- [ ] Document new capabilities in `README.md` and update screenshots once descriptions and grouped covers ship.
