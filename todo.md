@@ -76,6 +76,7 @@
 
 ## 10. Top-Level Task Bar
 - [ ] Add a persistent task bar/nav strip at the top of the app that exposes quick toggles for History and a new Logs panel.
+- [ ] Ensure the panel is called as it's own helper to ensure easy expansion in the future.
 - [ ] Design the Logs view hook so it can surface recent rotating log entries (or link out) without overwhelming the main screen.
 - [ ] Evaluate whether other destinations (Settings, Covers cache status, ABS health) belong in the task bar and document the final scope.
 
