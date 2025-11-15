@@ -136,7 +136,15 @@ with engine.begin() as cx:
             pass
 
 # Covers database - separate from history to cache covers before adding to qBittorrent
-covers_engine = create_engine("sqlite:////data/covers.db", future=True)
+# Configure connection pool to handle concurrent cover fetches better
+covers_engine = create_engine(
+    "sqlite:////data/covers.db",
+    future=True,
+    pool_size=20,  # Increased from default 5
+    max_overflow=30,  # Increased from default 10
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600  # Recycle connections after 1 hour
+)
 with covers_engine.begin() as cx:
     cx.execute(text("""
         CREATE TABLE IF NOT EXISTS covers (
@@ -412,22 +420,25 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
         local_file = None
         file_size = 0
 
-        # Check if we should download the cover
+        # Check if we should download the cover (do this in a separate connection block)
+        existing = None
         with covers_engine.begin() as cx:
             # Check if this cover URL is already cached for a different MAM ID
             existing = cx.execute(text("""
                 SELECT mam_id, title, local_file, file_size FROM covers
                 WHERE cover_url = :cover_url AND mam_id != :mam_id LIMIT 1
             """), {"cover_url": cover_url, "mam_id": mam_id}).fetchone()
+        # Connection is now closed before we do any async operations
 
-            if existing and existing[2]:
-                # Reuse existing downloaded cover
-                local_file = existing[2]
-                file_size = existing[3] or 0
-                logger.info(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing local file: {Path(local_file).name}")
-            elif MAX_COVERS_SIZE_MB > 0:
-                # Download the cover
-                local_file, file_size = await download_cover(cover_url, mam_id)
+        # Process the result AFTER closing the connection
+        if existing and existing[2]:
+            # Reuse existing downloaded cover
+            local_file = existing[2]
+            file_size = existing[3] or 0
+            logger.info(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing local file: {Path(local_file).name}")
+        elif MAX_COVERS_SIZE_MB > 0:
+            # Download the cover (no DB connection held during this async operation)
+            local_file, file_size = await download_cover(cover_url, mam_id)
 
         # Get the final cover URL (local or remote)
         final_cover_url = cover_url
@@ -435,7 +446,7 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
             filename = Path(local_file).name
             final_cover_url = f"/covers/{filename}"
 
-        # Insert or replace the cover entry
+        # Insert or replace the cover entry (separate connection block)
         with covers_engine.begin() as cx:
             cx.execute(text("""
                 INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, local_file, file_size, fetched_at)
@@ -461,7 +472,7 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
 
             logger.info(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}")
 
-        # Also update history table if there's an entry
+        # Also update history table if there's an entry (separate connection block)
         try:
             with engine.begin() as cx:
                 result = cx.execute(text("""
