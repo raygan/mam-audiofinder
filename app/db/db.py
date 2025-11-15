@@ -4,6 +4,7 @@ Handles database engine setup and migration execution.
 """
 import logging
 from pathlib import Path
+from datetime import datetime
 from sqlalchemy import create_engine, text
 
 logger = logging.getLogger("mam-audiofinder")
@@ -25,6 +26,17 @@ covers_engine = create_engine(
 
 # ---------------------------- Migration System ----------------------------
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+
+def _ensure_migrations_table(target_engine):
+    """Ensure the applied_migrations tracking table exists."""
+    with target_engine.begin() as cx:
+        cx.execute(text("""
+            CREATE TABLE IF NOT EXISTS applied_migrations (
+                filename TEXT PRIMARY KEY,
+                applied_at TEXT DEFAULT (datetime('now'))
+            )
+        """))
+
 
 def run_migrations():
     """
@@ -48,12 +60,28 @@ def run_migrations():
 
     # Track which database each migration applies to
     # Migrations 001-004 are for history.db, 005+ are for covers.db
+    # Ensure tracking tables exist
+    _ensure_migrations_table(engine)
+    _ensure_migrations_table(covers_engine)
+
+    pending = 0
     for migration_file in migration_files:
         # Determine target database
         migration_num = int(migration_file.stem.split("_")[0])
         target_engine = covers_engine if migration_num >= 5 else engine
         db_name = "covers.db" if migration_num >= 5 else "history.db"
 
+        with target_engine.begin() as cx:
+            exists = cx.execute(
+                text("SELECT 1 FROM applied_migrations WHERE filename = :filename"),
+                {"filename": migration_file.name}
+            ).fetchone()
+
+        if exists:
+            logger.debug(f"  ↺ Skipping already applied migration {migration_file.name}")
+            continue
+
+        pending += 1
         logger.info(f"  → {migration_file.name} (target: {db_name})")
 
         try:
@@ -77,13 +105,22 @@ def run_migrations():
                             logger.warning(f"    ⚠️  Error executing statement: {e}")
                             logger.debug(f"    Statement: {statement}")
 
+            with target_engine.begin() as cx:
+                cx.execute(
+                    text("INSERT INTO applied_migrations (filename, applied_at) VALUES (:filename, :applied_at)"),
+                    {"filename": migration_file.name, "applied_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
+                )
+
             logger.info(f"    ✓ {migration_file.name} completed")
 
         except Exception as e:
             logger.error(f"    ✗ Migration failed: {migration_file.name}: {e}")
             # Continue with other migrations instead of failing
 
-    logger.info("✓ Database migrations completed")
+    if pending == 0:
+        logger.info("✓ Database migrations already up to date")
+    else:
+        logger.info("✓ Database migrations completed")
 
 def initialize_databases():
     """Initialize database schemas by running migrations."""
