@@ -13,10 +13,11 @@
 - [x] Add env vars to `.env.example`/`README.md` (`ABS_BASE_URL`, `ABS_API_KEY`, optional library ID) and extend `validate_env.py` with helpful warnings when missing.
 - [x] Implement `fetch_abs_cover(title, author)` helper in `app/main.py` (or new module) that queries ABS API for closest match, returning cover URL + ABS book id.
 - [x] Extend SQLite `history` table with nullable columns (`abs_item_id`, `abs_cover_url`, `abs_cover_cached_at`); ensure migration is idempotent.
-- [ ] Surface ABS cover metadata (URL + item id) from the progressive fetch flow back into each search row so Add-to-qB posts can include it.
+- [x] Surface ABS cover metadata (URL + item id) from the progressive fetch flow back into each search row so Add-to-qB posts can include it.
 - [x] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
-- [ ] Ensure `/api/covers/fetch` + `CoverService` expose item ids/cover paths to the client state so history rows store the freshly fetched art without another lookup.
-- [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
+- [x] Ensure `/api/covers/fetch` + `CoverService` expose item ids/cover paths to the client state so history rows store the freshly fetched art without another lookup.
+- [x] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
+- [x] Fix repeated “Cache HIT but local file missing” cases by auto-healing rows whose shared cover file was purged (redownload once and relink all MAM IDs).
 
 ## 3. Centralized Log Rotation (Default 5 Files)
 - [x] Decide on log destination (e.g., `/data/logs/app.log`) and ensure directory exists/mounted in Docker.

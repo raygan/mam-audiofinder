@@ -53,7 +53,7 @@ class AudiobookshelfClient:
             logger.error(f"❌ Audiobookshelf API test failed with exception: {e}")
             return False
 
-    async def fetch_cover(self, title: str, author: str = "", mam_id: str = "") -> dict:
+    async def fetch_cover(self, title: str, author: str = "", mam_id: str = "", force_refresh: bool = False) -> dict:
         """
         Fetch cover image URL from Audiobookshelf.
         Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
@@ -62,10 +62,23 @@ class AudiobookshelfClient:
         logger.info(f"🔍 Fetching cover for: '{title}' by '{author}' (MAM ID: {mam_id or 'N/A'})")
 
         # Check cache first
-        if mam_id:
+        if mam_id and not force_refresh:
             cached = cover_service.get_cached_cover(mam_id)
             if cached:
-                return cached
+                if cached.get("needs_heal") and cached.get("source_cover_url"):
+                    logger.info(f"🩹 Healing missing cover file for MAM ID {mam_id}")
+                    await cover_service.save_cover_to_cache(
+                        mam_id,
+                        cached.get("source_cover_url"),
+                        cached.get("title") or title,
+                        cached.get("author") or author,
+                        cached.get("item_id")
+                    )
+                    healed = cover_service.get_cached_cover(mam_id)
+                    if healed:
+                        cached = healed
+                if cached.get("cover_url"):
+                    return cached
 
         if not self.is_configured:
             logger.warning(f"⚠️  ABS not configured, skipping cover fetch for '{title}'")

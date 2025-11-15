@@ -152,6 +152,10 @@ class CoverService:
                 """), {"mam_id": mam_id}).fetchone()
 
                 if row and row[0]:
+                    cover_url = row[0]
+                    item_id = row[1]
+                    title = row[3]
+                    author = row[4]
                     local_file = row[5]
                     # Check if local file exists
                     if local_file and Path(local_file).exists():
@@ -159,15 +163,23 @@ class CoverService:
                         filename = Path(local_file).name
                         local_url = f"/covers/{filename}"
                         logger.info(f"📦 Cache HIT (local) for MAM ID {mam_id}: {local_url} (title: '{row[3]}', fetched: {row[2]})")
-                        return {"cover_url": local_url, "item_id": row[1], "is_local": True}
+                        return {"cover_url": local_url, "item_id": item_id, "is_local": True}
                     elif MAX_COVERS_SIZE_MB == 0:
                         # Direct fetch mode - return remote URL
-                        logger.info(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})")
-                        return {"cover_url": row[0], "item_id": row[1], "is_local": False}
+                        logger.info(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {cover_url} (title: '{row[3]}', fetched: {row[2]})")
+                        return {"cover_url": cover_url, "item_id": item_id, "is_local": False}
                     else:
-                        # Local file missing but should exist - return remote URL as fallback
+                        # Local file missing but should exist - signal healing
                         logger.warning(f"⚠️  Cache HIT but local file missing for MAM ID {mam_id}, using remote URL")
-                        return {"cover_url": row[0], "item_id": row[1], "is_local": False}
+                        return {
+                            "cover_url": cover_url,
+                            "item_id": item_id,
+                            "is_local": False,
+                            "needs_heal": True,
+                            "source_cover_url": cover_url,
+                            "title": title,
+                            "author": author,
+                        }
 
             logger.info(f"📦 Cache MISS for MAM ID {mam_id}")
             return {}
@@ -248,6 +260,23 @@ class CoverService:
 
                 logger.info(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}")
 
+            # Propagate local file info to other rows sharing this cover URL
+            if local_file and Path(local_file).exists():
+                try:
+                    with covers_engine.begin() as cx:
+                        cx.execute(text("""
+                            UPDATE covers
+                            SET local_file = :local_file,
+                                file_size = :file_size
+                            WHERE cover_url = :cover_url
+                        """), {
+                            "local_file": local_file,
+                            "file_size": file_size,
+                            "cover_url": cover_url
+                        })
+                except Exception as pe:
+                    logger.warning(f"⚠️  Failed to propagate local file info for cover URL {cover_url}: {pe}")
+
             # Also update history table if there's an entry (separate connection block)
             try:
                 with engine.begin() as cx:
@@ -271,6 +300,51 @@ class CoverService:
         except Exception as e:
             logger.error(f"❌ CRITICAL: Failed to cache cover for MAM ID {mam_id}: {type(e).__name__}: {e}")
             logger.exception("Save cover to cache traceback:")
+
+    def invalidate_cover(self, mam_id: str) -> bool:
+        """
+        Remove a cached cover entry and delete any downloaded file.
+        Returns True if an entry was removed.
+        """
+        if not mam_id:
+            return False
+
+        removed = False
+        local_file = None
+        try:
+            with covers_engine.begin() as cx:
+                row = cx.execute(text("""
+                    SELECT local_file FROM covers WHERE mam_id = :mam_id
+                """), {"mam_id": mam_id}).fetchone()
+                if row:
+                    local_file = row[0]
+                cx.execute(text("DELETE FROM covers WHERE mam_id = :mam_id"), {"mam_id": mam_id})
+                removed = bool(row)
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to delete covers cache row for {mam_id}: {e}")
+
+        if local_file:
+            try:
+                path = Path(local_file)
+                if path.exists():
+                    path.unlink()
+                    logger.info(f"🧹 Deleted stale cover file {path.name} for {mam_id}")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to remove cover file for {mam_id}: {e}")
+
+        try:
+            with engine.begin() as cx:
+                cx.execute(text("""
+                    UPDATE history
+                    SET abs_cover_url = NULL,
+                        abs_item_id = NULL,
+                        abs_cover_cached_at = NULL
+                    WHERE mam_id = :mam_id
+                """), {"mam_id": mam_id})
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to clear history cover fields for {mam_id}: {e}")
+
+        return removed
 
 
 # Global instance

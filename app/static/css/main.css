@@ -384,6 +384,11 @@ a:hover {
   display: block;
 }
 
+.cover-skeleton.cover-loaded {
+  background: none;
+  animation: none;
+}
+
 .cover-image {
   max-width: 60px;
   max-height: 90px;

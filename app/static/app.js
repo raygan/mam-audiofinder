@@ -86,6 +86,7 @@ if (form) {
 }
 
 // ---------- Cover lazy loading with IntersectionObserver ----------
+const rowStateStore = new Map();
 let coverObserver = null;
 
 function initCoverObserver() {
@@ -98,6 +99,8 @@ function initCoverObserver() {
         const mamId = container.dataset.mamId;
         const title = container.dataset.title;
         const author = container.dataset.author;
+        const rowId = container.dataset.rowId;
+        const rowState = rowId ? rowStateStore.get(rowId) : null;
 
         // Stop observing immediately to avoid duplicate fetches
         coverObserver.unobserve(container);
@@ -108,7 +111,7 @@ function initCoverObserver() {
         }
 
         // Fetch cover from backend with retry logic
-        fetchCoverForItem(container, mamId, title, author);
+        fetchCoverForItem(container, mamId, title, author, rowState);
       }
     });
   }, {
@@ -119,8 +122,9 @@ function initCoverObserver() {
   return coverObserver;
 }
 
-async function fetchCoverForItem(container, mamId, title, author) {
+async function fetchCoverForItem(container, mamId, title, author, rowState = null) {
   try {
+    container.classList.remove('cover-loaded');
     const params = new URLSearchParams({
       mam_id: mamId,
       title: title,
@@ -138,6 +142,10 @@ async function fetchCoverForItem(container, mamId, title, author) {
     const data = await resp.json();
 
     if (data.cover_url) {
+      if (rowState) {
+        rowState.abs_cover_url = data.cover_url;
+        rowState.abs_item_id = data.item_id || rowState.abs_item_id || '';
+      }
       // Create and load the image
       const img = document.createElement('img');
       img.className = 'cover-image';
@@ -148,24 +156,33 @@ async function fetchCoverForItem(container, mamId, title, author) {
         img.classList.add('loaded');
         container.innerHTML = '';
         container.appendChild(img);
+        container.classList.add('cover-loaded');
       };
 
       img.onerror = () => {
         container.innerHTML = '<div class="cover-placeholder">No cover</div>';
+        container.classList.remove('cover-loaded');
       };
     } else {
+      if (rowState) {
+        rowState.abs_cover_url = '';
+        rowState.abs_item_id = '';
+      }
       // No cover available or error
       const errorMsg = data.error || 'No cover';
       container.innerHTML = `<div class="cover-placeholder">${errorMsg === 'No cover found' ? 'No cover' : 'Error'}</div>`;
+      container.classList.remove('cover-loaded');
     }
   } catch (e) {
     console.error('Cover fetch exception:', e);
     container.innerHTML = '<div class="cover-placeholder">Error</div>';
+    container.classList.remove('cover-loaded');
   }
 }
 
 // ---------- Search flow ----------
 async function runSearch() {
+  rowStateStore.clear();
   const text = (q?.value || '').trim();
   const sortType = (sortSel?.value) || 'default';
   const perpage = parseInt(perpageSel?.value || '25', 10);
@@ -193,7 +210,15 @@ async function runSearch() {
     const observer = initCoverObserver();
 
     // Render rows immediately with skeleton placeholders
-    rows.forEach((it) => {
+    rows.forEach((it, idx) => {
+      const rowId = `${it.id || 'row'}-${idx}`;
+      const rowState = {
+        ...it,
+        abs_cover_url: it.abs_cover_url || '',
+        abs_item_id: it.abs_item_id || ''
+      };
+      rowStateStore.set(rowId, rowState);
+
       const tr = document.createElement('tr');
       const sl = `${it.seeders ?? '-'} / ${it.leechers ?? '-'}`;
 
@@ -210,13 +235,13 @@ async function runSearch() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              id: String(it.id ?? ''),
-              title: it.title || '',
-              dl: it.dl || '',
-              author: it.author_info || '',
-              narrator: it.narrator_info || '',
-              abs_cover_url: it.abs_cover_url || '',
-              abs_item_id: it.abs_item_id || ''
+              id: String(rowState.id ?? ''),
+              title: rowState.title || '',
+              dl: rowState.dl || '',
+              author: rowState.author_info || '',
+              narrator: rowState.narrator_info || '',
+              abs_cover_url: rowState.abs_cover_url || '',
+              abs_item_id: rowState.abs_item_id || ''
             })
           });
           if (!resp.ok) {
@@ -245,6 +270,7 @@ async function runSearch() {
       coverContainer.dataset.mamId = it.id || '';
       coverContainer.dataset.title = it.title || '';
       coverContainer.dataset.author = it.author_info || '';
+      coverContainer.dataset.rowId = rowId;
 
       // Create the row structure
       const coverCell = document.createElement('td');
