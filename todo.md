@@ -51,7 +51,7 @@
 - [x] Move schema-altering SQL out of runtime blocks and into simple migration scripts (e.g., `db/migrations/001_add_history_columns.sql`) executed at startup; document how to add new migrations.
 - [x] Replace `print` debugging with the standard `logging` module plus rotating handlers so background tasks, cover services, and routes share consistent log formatting.
 - [x] Wrap cover logic inside a `CoverService` class that exposes `get_cover`, `cache_cover`, and `refresh_cover` methods; inject it where needed to improve testability and avoid global state.
-- [ ] Improve search UX by rendering textual rows immediately, showing skeleton placeholders for covers, then loading cover images asynchronously (IntersectionObserver + progressive updates) so users see results faster even on slow ABS responses.
+- [x] Improve search UX by rendering textual rows immediately, showing skeleton placeholders for covers, then loading cover images asynchronously (IntersectionObserver + progressive updates) so users see results faster even on slow ABS responses.
 
 ## 7. Upload Torrents to ABS for Better Matching
   - [ ] Read the Audiobookshelf upload API (`POST /api/upload`) docs to understand required headers, JSON, and multipart fields.
