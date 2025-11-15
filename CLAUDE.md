@@ -373,6 +373,40 @@ messages to help users debug path mapping issues."
 | `PUID` | `1000` | Container user ID |
 | `PGID` | `1000` | Container group ID |
 | `UMASK` | `0002` | File creation mask |
+| `LOG_MAX_MB` | `5` | Max size per log file in MB before rotation |
+| `LOG_MAX_FILES` | `5` | Number of rotated log files to keep |
+
+### Logging Configuration
+
+**Location:** `/data/logs/app.log` (inside container)
+
+**Features:**
+- **Automatic Rotation:** When `app.log` reaches `LOG_MAX_MB` (default 5MB), it's rotated to `app.log.1`
+- **History Management:** Keeps up to `LOG_MAX_FILES` (default 5) rotated logs, oldest are automatically deleted
+- **Dual Output:** Logs go to both file (with timestamps) and stderr (for Docker logs)
+- **Directory Creation:** `/data/logs` directory is created automatically on startup
+
+**Log Levels Used:**
+- `logger.info()` - Normal operations, status updates
+- `logger.warning()` - Non-critical issues, fallback behavior
+- `logger.error()` - Errors that don't stop execution
+- `logger.exception()` - Errors with full traceback
+
+**Implementation Details:**
+- Uses Python's `logging` module with `RotatingFileHandler`
+- Console handler uses simple format (just message) for Docker compatibility
+- File handler uses timestamped format: `%(asctime)s - %(levelname)s - %(message)s`
+- Logger name: `mam-audiofinder`
+
+**Accessing Logs:**
+```bash
+# Via Docker
+docker compose logs -f
+
+# Via file on host (if DATA_DIR=/path/to/data)
+cat /path/to/data/logs/app.log
+cat /path/to/data/logs/app.log.1  # Previous rotation
+```
 
 ### Path Mapping Concepts
 

@@ -59,6 +59,8 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 | `PUID`                 | Container user ID (for file permissions, default `1000`)                    |
 | `PGID`                 | Container group ID (for file permissions, default `1000`)                   |
 | `UMASK`                | File creation mask (default `0002`)                                         |
+| `LOG_MAX_MB`           | Maximum size per log file in MB before rotation (default `5`)               |
+| `LOG_MAX_FILES`        | Number of rotated log files to keep (default `5`)                           |
 
 ### FLATTEN_DISCS Explained
 
@@ -88,6 +90,35 @@ Speaker for the Dead/
 The import detects disc/track patterns (Disc, Disk, CD, Part + Track, Chapter numbers), sorts files correctly across all discs, and renames them sequentially. This creates a clean, flat structure that Audiobookshelf can process into a single audiobook.
 
 Set `FLATTEN_DISCS=false` to preserve the original directory structure.
+
+### Logging & Log Rotation
+
+Application logs are automatically written to `/data/logs/app.log` with automatic rotation to prevent disk space issues:
+
+- **Log Location:** `/data/logs/app.log` (inside container, maps to `<DATA_DIR>/logs/app.log` on host)
+- **Rotation:** When `app.log` reaches `LOG_MAX_MB` size (default 5MB), it's renamed to `app.log.1` and a new `app.log` is created
+- **History:** Keeps up to `LOG_MAX_FILES` rotated logs (default 5), automatically deleting the oldest when the limit is reached
+- **Console Output:** All logs are also sent to stderr for Docker logs viewing (`docker compose logs -f`)
+
+**Accessing logs:**
+```bash
+# View real-time logs via Docker
+docker compose logs -f
+
+# View log files on host
+cat <DATA_DIR>/logs/app.log
+
+# View older rotated logs
+cat <DATA_DIR>/logs/app.log.1
+cat <DATA_DIR>/logs/app.log.2
+```
+
+**Customizing rotation:**
+```bash
+# In your .env file
+LOG_MAX_MB=10        # Increase to 10MB per file
+LOG_MAX_FILES=10     # Keep 10 rotated files (10MB × 10 = ~100MB total)
+```
 
 > **Note:** The variable is `PGID` (not `GUID`). Both `PUID` and `PGID` must be set together. The container will validate your configuration on startup and show helpful error messages if there are issues.
 >

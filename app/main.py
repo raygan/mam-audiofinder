@@ -1,4 +1,6 @@
 import os, json, re, asyncio, sys, hashlib
+import logging
+from logging.handlers import RotatingFileHandler
 import httpx
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
@@ -8,6 +10,40 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from datetime import datetime
+
+# ---------------------------- Logging Setup ----------------------------
+LOG_MAX_MB = int(os.getenv("LOG_MAX_MB", "5"))
+LOG_MAX_FILES = int(os.getenv("LOG_MAX_FILES", "5"))
+LOG_DIR = Path("/data/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Create logger
+logger = logging.getLogger("mam-audiofinder")
+logger.setLevel(logging.INFO)
+
+# Clear any existing handlers
+logger.handlers.clear()
+
+# Console handler for Docker (always active)
+console_handler = logging.StreamHandler(sys.stderr)
+console_handler.setLevel(logging.INFO)
+console_formatter = logging.Formatter('%(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# File handler with rotation
+log_file = LOG_DIR / "app.log"
+file_handler = RotatingFileHandler(
+    log_file,
+    maxBytes=LOG_MAX_MB * 1024 * 1024,  # Convert MB to bytes
+    backupCount=LOG_MAX_FILES
+)
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+logger.info(f"Logging initialized: {log_file} (max {LOG_MAX_MB}MB, {LOG_MAX_FILES} files)")
 
 # ---------------------------- Config ----------------------------
 MAM_BASE = "https://www.myanonamouse.net"
@@ -131,17 +167,17 @@ with covers_engine.begin() as cx:
     except Exception:
         pass
 
-print("✓ Database schemas initialized", file=sys.stderr)
+logger.info("✓ Database schemas initialized")
 
 # ---------------------------- Startup Tests ----------------------------
 async def test_abs_connection():
     """Test Audiobookshelf API connectivity on startup."""
     if not ABS_BASE_URL or not ABS_API_KEY:
-        print("ℹ️  Audiobookshelf integration not configured (skipping connectivity test)", file=sys.stderr)
+        logger.info("ℹ️  Audiobookshelf integration not configured (skipping connectivity test)")
         return False
 
     try:
-        print(f"🔍 Testing Audiobookshelf API connection to {ABS_BASE_URL}...", file=sys.stderr)
+        logger.info(f"🔍 Testing Audiobookshelf API connection to {ABS_BASE_URL}...")
         headers = {"Authorization": f"Bearer {ABS_API_KEY}"}
 
         async with httpx.AsyncClient(timeout=10) as client:
@@ -150,15 +186,15 @@ async def test_abs_connection():
             if r.status_code == 200:
                 data = r.json()
                 username = data.get("username", "unknown")
-                print(f"✅ Audiobookshelf API connected successfully (user: {username})", file=sys.stderr)
+                logger.info(f"✅ Audiobookshelf API connected successfully (user: {username})")
                 return True
             else:
-                print(f"❌ Audiobookshelf API test failed: HTTP {r.status_code}", file=sys.stderr)
-                print(f"   Response: {r.text[:200]}", file=sys.stderr)
+                logger.error(f"❌ Audiobookshelf API test failed: HTTP {r.status_code}")
+                logger.error(f"   Response: {r.text[:200]}")
                 return False
 
     except Exception as e:
-        print(f"❌ Audiobookshelf API test failed with exception: {e}", file=sys.stderr)
+        logger.error(f"❌ Audiobookshelf API test failed with exception: {e}")
         return False
 
 # ---------------------------- App ----------------------------
@@ -196,7 +232,7 @@ def get_covers_dir_size() -> int:
             if file.is_file():
                 total_size += file.stat().st_size
     except Exception as e:
-        print(f"⚠️  Error calculating covers directory size: {e}", file=sys.stderr)
+        logger.warning(f"⚠️  Error calculating covers directory size: {e}")
     return total_size
 
 def cleanup_old_covers():
@@ -211,7 +247,7 @@ def cleanup_old_covers():
     if current_size <= max_bytes:
         return
 
-    print(f"📦 Covers cache ({current_size / 1024 / 1024:.1f}MB) exceeds limit ({MAX_COVERS_SIZE_MB}MB), cleaning up...", file=sys.stderr)
+    logger.info(f"📦 Covers cache ({current_size / 1024 / 1024:.1f}MB) exceeds limit ({MAX_COVERS_SIZE_MB}MB), cleaning up...")
 
     # Get all cover files with their access times
     files_with_times = []
@@ -220,7 +256,7 @@ def cleanup_old_covers():
             if file.is_file():
                 files_with_times.append((file, file.stat().st_atime, file.stat().st_size))
     except Exception as e:
-        print(f"❌ Error listing covers for cleanup: {e}", file=sys.stderr)
+        logger.error(f"❌ Error listing covers for cleanup: {e}")
         return
 
     # Sort by access time (oldest first)
@@ -236,12 +272,12 @@ def cleanup_old_covers():
             file.unlink()
             removed_count += 1
             removed_size += size
-            print(f"🗑️  Removed old cover: {file.name} ({size / 1024:.1f}KB)", file=sys.stderr)
+            logger.info(f"🗑️  Removed old cover: {file.name} ({size / 1024:.1f}KB)")
         except Exception as e:
-            print(f"⚠️  Failed to remove {file.name}: {e}", file=sys.stderr)
+            logger.warning(f"⚠️  Failed to remove {file.name}: {e}")
 
     if removed_count > 0:
-        print(f"✅ Cleaned up {removed_count} covers, freed {removed_size / 1024 / 1024:.1f}MB", file=sys.stderr)
+        logger.info(f"✅ Cleaned up {removed_count} covers, freed {removed_size / 1024 / 1024:.1f}MB")
 
 async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
     """
@@ -250,11 +286,11 @@ async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
     """
     if MAX_COVERS_SIZE_MB == 0:
         # Direct fetch mode - don't cache
-        print(f"ℹ️  MAX_COVERS_SIZE_MB=0, skipping download for direct fetch mode", file=sys.stderr)
+        logger.info(f"ℹ️  MAX_COVERS_SIZE_MB=0, skipping download for direct fetch mode")
         return None, 0
 
     try:
-        print(f"⬇️  Downloading cover from: {url}", file=sys.stderr)
+        logger.info(f"⬇️  Downloading cover from: {url}")
 
         async with httpx.AsyncClient(timeout=30) as client:
             # Add auth header if it's an ABS URL
@@ -265,7 +301,7 @@ async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
             r = await client.get(url, headers=headers, follow_redirects=True)
 
             if r.status_code != 200:
-                print(f"⚠️  Failed to download cover: HTTP {r.status_code}", file=sys.stderr)
+                logger.warning(f"⚠️  Failed to download cover: HTTP {r.status_code}")
                 return None, 0
 
             # Determine file extension from Content-Type or URL
@@ -288,7 +324,7 @@ async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
             file_size = len(r.content)
 
             filepath.write_bytes(r.content)
-            print(f"✅ Saved cover: {filename} ({file_size / 1024:.1f}KB)", file=sys.stderr)
+            logger.info(f"✅ Saved cover: {filename} ({file_size / 1024:.1f}KB)")
 
             # Check if we need to cleanup old covers
             cleanup_old_covers()
@@ -296,9 +332,8 @@ async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
             return str(filepath), file_size
 
     except Exception as e:
-        print(f"❌ Failed to download cover from {url}: {type(e).__name__}: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        logger.error(f"❌ Failed to download cover from {url}: {type(e).__name__}: {e}")
+        logger.exception("Cover download traceback:")
         return None, 0
 
 @app.get("/covers/{filename}")
@@ -320,7 +355,7 @@ def get_cached_cover(mam_id: str) -> dict:
     Returns dict with 'cover_url' (local or remote), 'item_id', 'is_local' if found, else empty dict.
     """
     if not mam_id:
-        print(f"⚠️  get_cached_cover called with empty mam_id", file=sys.stderr)
+        logger.warning(f"⚠️  get_cached_cover called with empty mam_id")
         return {}
 
     try:
@@ -339,23 +374,22 @@ def get_cached_cover(mam_id: str) -> dict:
                     # Return local cover path
                     filename = Path(local_file).name
                     local_url = f"/covers/{filename}"
-                    print(f"📦 Cache HIT (local) for MAM ID {mam_id}: {local_url} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
+                    logger.info(f"📦 Cache HIT (local) for MAM ID {mam_id}: {local_url} (title: '{row[3]}', fetched: {row[2]})")
                     return {"cover_url": local_url, "item_id": row[1], "is_local": True}
                 elif MAX_COVERS_SIZE_MB == 0:
                     # Direct fetch mode - return remote URL
-                    print(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
+                    logger.info(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})")
                     return {"cover_url": row[0], "item_id": row[1], "is_local": False}
                 else:
                     # Local file missing but should exist - return remote URL as fallback
-                    print(f"⚠️  Cache HIT but local file missing for MAM ID {mam_id}, using remote URL", file=sys.stderr)
+                    logger.warning(f"⚠️  Cache HIT but local file missing for MAM ID {mam_id}, using remote URL")
                     return {"cover_url": row[0], "item_id": row[1], "is_local": False}
 
-        print(f"📦 Cache MISS for MAM ID {mam_id}", file=sys.stderr)
+        logger.info(f"📦 Cache MISS for MAM ID {mam_id}")
         return {}
     except Exception as e:
-        print(f"❌ CRITICAL: Failed to get cached cover for MAM ID {mam_id}: {type(e).__name__}: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        logger.error(f"❌ CRITICAL: Failed to get cached cover for MAM ID {mam_id}: {type(e).__name__}: {e}")
+        logger.exception("Get cached cover traceback:")
         return {}
 
 async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None):
@@ -365,15 +399,15 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
     Also checks if the cover_url is already used by another MAM ID to avoid duplicate downloads.
     """
     if not mam_id:
-        print(f"⚠️  save_cover_to_cache called with empty mam_id", file=sys.stderr)
+        logger.warning(f"⚠️  save_cover_to_cache called with empty mam_id")
         return
 
     if not cover_url:
-        print(f"⚠️  save_cover_to_cache called with empty cover_url for MAM ID {mam_id}", file=sys.stderr)
+        logger.warning(f"⚠️  save_cover_to_cache called with empty cover_url for MAM ID {mam_id}")
         return
 
     try:
-        print(f"💾 Attempting to cache cover for MAM ID {mam_id}: {cover_url}", file=sys.stderr)
+        logger.info(f"💾 Attempting to cache cover for MAM ID {mam_id}: {cover_url}")
 
         local_file = None
         file_size = 0
@@ -390,7 +424,7 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
                 # Reuse existing downloaded cover
                 local_file = existing[2]
                 file_size = existing[3] or 0
-                print(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing local file: {Path(local_file).name}", file=sys.stderr)
+                logger.info(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing local file: {Path(local_file).name}")
             elif MAX_COVERS_SIZE_MB > 0:
                 # Download the cover
                 local_file, file_size = await download_cover(cover_url, mam_id)
@@ -425,7 +459,7 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
                 "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             })
 
-            print(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}", file=sys.stderr)
+            logger.info(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}")
 
         # Also update history table if there's an entry
         try:
@@ -443,14 +477,13 @@ async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", auth
                     "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 })
                 if result.rowcount > 0:
-                    print(f"✅ Updated {result.rowcount} history row(s) with cover for MAM ID {mam_id}", file=sys.stderr)
+                    logger.info(f"✅ Updated {result.rowcount} history row(s) with cover for MAM ID {mam_id}")
         except Exception as he:
-            print(f"⚠️  Failed to update history table (non-critical): {he}", file=sys.stderr)
+            logger.warning(f"⚠️  Failed to update history table (non-critical): {he}")
 
     except Exception as e:
-        print(f"❌ CRITICAL: Failed to cache cover for MAM ID {mam_id}: {type(e).__name__}: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        logger.error(f"❌ CRITICAL: Failed to cache cover for MAM ID {mam_id}: {type(e).__name__}: {e}")
+        logger.exception("Save cover to cache traceback:")
 
 async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dict:
     """
@@ -458,7 +491,7 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
     Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
     Checks cache first if mam_id is provided.
     """
-    print(f"🔍 Fetching cover for: '{title}' by '{author}' (MAM ID: {mam_id or 'N/A'})", file=sys.stderr)
+    logger.info(f"🔍 Fetching cover for: '{title}' by '{author}' (MAM ID: {mam_id or 'N/A'})")
 
     # Check cache first
     if mam_id:
@@ -467,11 +500,11 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
             return cached
 
     if not ABS_BASE_URL or not ABS_API_KEY:
-        print(f"⚠️  ABS not configured, skipping cover fetch for '{title}'", file=sys.stderr)
+        logger.warning(f"⚠️  ABS not configured, skipping cover fetch for '{title}'")
         return {}
 
     if not title:
-        print(f"⚠️  No title provided, skipping cover fetch", file=sys.stderr)
+        logger.warning(f"⚠️  No title provided, skipping cover fetch")
         return {}
 
     try:
@@ -480,7 +513,7 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
         if author:
             params["author"] = author
 
-        print(f"🌐 Calling ABS /api/search/covers with params: {params}", file=sys.stderr)
+        logger.info(f"🌐 Calling ABS /api/search/covers with params: {params}")
 
         async with httpx.AsyncClient(timeout=10) as client:
             # Try the search/covers endpoint first
@@ -490,12 +523,12 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                 params=params
             )
 
-            print(f"📡 ABS /api/search/covers response: HTTP {r.status_code}", file=sys.stderr)
+            logger.info(f"📡 ABS /api/search/covers response: HTTP {r.status_code}")
 
             if r.status_code == 200:
                 data = r.json()
                 results = data.get("results", [])
-                print(f"📊 Got {len(results)} results from /api/search/covers", file=sys.stderr)
+                logger.info(f"📊 Got {len(results)} results from /api/search/covers")
 
                 if results and len(results) > 0:
                     # Take the first result
@@ -504,11 +537,11 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                     if isinstance(first_result, str):
                         # It's just a URL
                         cover_url = first_result
-                        print(f"✅ Found cover URL (string): {cover_url}", file=sys.stderr)
+                        logger.info(f"✅ Found cover URL (string): {cover_url}")
                     elif isinstance(first_result, dict):
                         # It might have more structure
                         cover_url = first_result.get("cover") or first_result.get("url") or str(first_result)
-                        print(f"✅ Found cover URL (dict): {cover_url}", file=sys.stderr)
+                        logger.info(f"✅ Found cover URL (dict): {cover_url}")
 
                     if cover_url:
                         # Cache the result if we have a MAM ID
@@ -520,13 +553,13 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                                 return cached
                         return {"cover_url": cover_url, "item_id": None}
                 else:
-                    print(f"⚠️  No results from /api/search/covers", file=sys.stderr)
+                    logger.warning(f"⚠️  No results from /api/search/covers")
             else:
-                print(f"⚠️  /api/search/covers failed: {r.text[:200]}", file=sys.stderr)
+                logger.warning(f"⚠️  /api/search/covers failed: {r.text[:200]}")
 
         # If no results from search/covers, try searching library items
         if ABS_LIBRARY_ID:
-            print(f"🔍 Trying library search with ID: {ABS_LIBRARY_ID}", file=sys.stderr)
+            logger.info(f"🔍 Trying library search with ID: {ABS_LIBRARY_ID}")
             async with httpx.AsyncClient(timeout=10) as client:
                 # Search within library using filter
                 r = await client.get(
@@ -535,12 +568,12 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                     params={"limit": 5, "minified": "1"}
                 )
 
-                print(f"📡 ABS library items response: HTTP {r.status_code}", file=sys.stderr)
+                logger.info(f"📡 ABS library items response: HTTP {r.status_code}")
 
                 if r.status_code == 200:
                     data = r.json()
                     results = data.get("results", [])
-                    print(f"📊 Got {len(results)} items from library", file=sys.stderr)
+                    logger.info(f"📊 Got {len(results)} items from library")
 
                     # Simple title matching (case-insensitive)
                     title_lower = title.lower()
@@ -551,7 +584,7 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                             if item_id:
                                 # Build cover URL
                                 cover_url = f"{ABS_BASE_URL}/api/items/{item_id}/cover"
-                                print(f"✅ Found cover in library: {cover_url}", file=sys.stderr)
+                                logger.info(f"✅ Found cover in library: {cover_url}")
                                 # Cache the result if we have a MAM ID
                                 if mam_id:
                                     await save_cover_to_cache(mam_id, cover_url, title, author, item_id)
@@ -560,18 +593,18 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                                     if cached:
                                         return cached
                                 return {"cover_url": cover_url, "item_id": item_id}
-                    print(f"⚠️  No matching items in library for '{title}'", file=sys.stderr)
+                    logger.warning(f"⚠️  No matching items in library for '{title}'")
                 else:
-                    print(f"⚠️  Library search failed: {r.text[:200]}", file=sys.stderr)
+                    logger.warning(f"⚠️  Library search failed: {r.text[:200]}")
         else:
-            print(f"ℹ️  No ABS_LIBRARY_ID configured, skipping library search", file=sys.stderr)
+            logger.info(f"ℹ️  No ABS_LIBRARY_ID configured, skipping library search")
 
-        print(f"❌ No cover found for '{title}'", file=sys.stderr)
+        logger.warning(f"❌ No cover found for '{title}'")
         return {}
 
     except Exception as e:
         # Don't fail the whole request if ABS is down
-        print(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}", file=sys.stderr)
+        logger.error(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}")
         return {}
 
 # ---------------------------- Search ----------------------------
@@ -670,7 +703,7 @@ async def search(payload: dict):
 
     # Fetch covers from Audiobookshelf (if configured)
     if ABS_BASE_URL and ABS_API_KEY and out:
-        print(f"📚 Fetching covers for {len(out)} search results...", file=sys.stderr)
+        logger.info(f"📚 Fetching covers for {len(out)} search results...")
         # Fetch covers in parallel for all results
         cover_tasks = []
         for result in out:
@@ -690,14 +723,14 @@ async def search(payload: dict):
                 if cover_data.get("cover_url"):
                     covers_added += 1
             elif isinstance(cover_data, Exception):
-                print(f"❌ Cover fetch exception for result {i}: {cover_data}", file=sys.stderr)
+                logger.error(f"❌ Cover fetch exception for result {i}: {cover_data}")
 
-        print(f"✅ Added {covers_added} cover URLs to search results", file=sys.stderr)
+        logger.info(f"✅ Added {covers_added} cover URLs to search results")
     else:
         if not ABS_BASE_URL or not ABS_API_KEY:
-            print(f"ℹ️  Skipping cover fetch: ABS not configured (URL={bool(ABS_BASE_URL)}, KEY={bool(ABS_API_KEY)})", file=sys.stderr)
+            logger.info(f"ℹ️  Skipping cover fetch: ABS not configured (URL={bool(ABS_BASE_URL)}, KEY={bool(ABS_API_KEY)})")
         elif not out:
-            print(f"ℹ️  Skipping cover fetch: no search results", file=sys.stderr)
+            logger.info(f"ℹ️  Skipping cover fetch: no search results")
 
     return JSONResponse({
         "results": out,
