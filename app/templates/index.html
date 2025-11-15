@@ -8,24 +8,8 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
   <link rel="apple-touch-icon" href="/static/favicon-180.png">
-  <meta name="theme-color" content="#f5c518">
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-    header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin: 0; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 1100px; }
-    .row { display:flex; gap:0.5rem; flex-wrap: wrap; }
-    input[type="text"] { flex:1; min-width: 260px; padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
-    select { padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
-    button { padding:0.6rem 0.9rem; border:1px solid #888; background:#f6f6f6; border-radius:8px; cursor:pointer; }
-    table { width:100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { padding: 0.5rem; border-bottom: 1px solid #eee; text-align: left; }
-    .muted { color:#666; font-size:0.9rem; }
-    .right { text-align:right; }
-    .center { text-align: center; }
-    .import-form input, .import-form select { padding:4px 6px; }
-    .import-form button { padding:4px 10px; }
-  </style>
+  <meta name="theme-color" content="#8b2635">
+  <link rel="stylesheet" href="/static/css/main.css">
 </head>
 <body>
   <header>
@@ -49,7 +33,7 @@
     <button id="searchBtn" type="submit">Search</button>
   </form>
 
-    <div id="status" class="muted" style="margin-top:0.5rem"></div>
+    <div id="status" class="muted"></div>
 
     <table id="results" style="display:none">
 		<thead>
@@ -69,7 +53,7 @@
     </table>
     
     <div id="historyCard" class="card" style="margin-top:1rem; display:none">
-      <h3 style="margin:0 0 .5rem 0; font-size:1.1rem;">History</h3>
+      <h3>History</h3>
       <table id="history">
         <thead>
 		    <tr>
