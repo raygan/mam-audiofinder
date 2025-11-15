@@ -25,11 +25,11 @@
 - [x] Document rotation behavior in README + AGENTS and CLAUDE, including instructions for log collection in container setups.
 
 ## 4. Sharable Search/History URLs
-- [ ] Define URL schema (e.g., `?q=term&sort=seedersDesc&view=history`) supporting search query, filters, and optional history view toggle.
-- [ ] Update `app/static/app.js` to push state using `history.replaceState`/`pushState` after searches or when History is opened.
-- [ ] On page load, parse `location.search` to pre-populate inputs, auto-run search if `q` exists, and auto-open history if `view=history`.
-- [ ] Handle back/forward navigation by listening to `popstate` and re-running searches/history toggles so the URL stays authoritative.
-- [ ] Reflect additional filters (when grouping arrives) in the query string to keep shared links accurate.
+- [x] Define URL schema (e.g., `?q=term&sort=seedersDesc&view=history`) supporting search query, filters, and optional history view toggle.
+- [x] Update `app/static/app.js` to push state using `history.replaceState`/`pushState` after searches or when History is opened.
+- [x] On page load, parse `location.search` to pre-populate inputs, auto-run search if `q` exists, and auto-open history if `view=history`.
+- [x] Handle back/forward navigation by listening to `popstate` and re-running searches/history toggles so the URL stays authoritative.
+- [x] Reflect additional filters (when grouping arrives) in the query string to keep shared links accurate.
 
 ## 5. Display Covers With Grouped Searches
 - [ ] Update frontend search rendering to group torrents by normalized title (strip format tags, trim whitespace, casefold).
