@@ -1,7 +1,8 @@
-import os, json, re, asyncio, sys
+import os, json, re, asyncio, sys, hashlib
 import httpx
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -36,6 +37,11 @@ QB_POSTIMPORT_CATEGORY = os.getenv("QB_POSTIMPORT_CATEGORY", "")  # "" = clear; 
 ABS_BASE_URL = os.getenv("ABS_BASE_URL", "").rstrip("/")
 ABS_API_KEY = os.getenv("ABS_API_KEY", "")
 ABS_LIBRARY_ID = os.getenv("ABS_LIBRARY_ID", "")
+MAX_COVERS_SIZE_MB = int(os.getenv("MAX_COVERS_SIZE_MB", "500"))  # 0 = direct fetch only (not recommended)
+
+# Covers directory for caching downloaded images
+COVERS_DIR = Path("/data/covers")
+COVERS_DIR.mkdir(parents=True, exist_ok=True)
 
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
@@ -104,9 +110,20 @@ with covers_engine.begin() as cx:
           author TEXT,
           cover_url TEXT NOT NULL,
           abs_item_id TEXT,
+          local_file TEXT,
+          file_size INTEGER,
           fetched_at TEXT DEFAULT (datetime('now'))
         )
     """))
+    # Add new columns if missing (idempotent)
+    for ddl in (
+        "ALTER TABLE covers ADD COLUMN local_file TEXT",
+        "ALTER TABLE covers ADD COLUMN file_size INTEGER"
+    ):
+        try:
+            cx.execute(text(ddl))
+        except Exception:
+            pass
     # Create index for faster lookups
     try:
         cx.execute(text("CREATE INDEX IF NOT EXISTS idx_covers_mam_id ON covers(mam_id)"))
@@ -170,11 +187,137 @@ async def config():
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+# ---------------------------- Cover Management ----------------------------
+def get_covers_dir_size() -> int:
+    """Get total size of covers directory in bytes."""
+    total_size = 0
+    try:
+        for file in COVERS_DIR.iterdir():
+            if file.is_file():
+                total_size += file.stat().st_size
+    except Exception as e:
+        print(f"⚠️  Error calculating covers directory size: {e}", file=sys.stderr)
+    return total_size
+
+def cleanup_old_covers():
+    """Remove oldest covers if directory exceeds MAX_COVERS_SIZE_MB."""
+    if MAX_COVERS_SIZE_MB == 0:
+        # No caching - should never get here, but just in case
+        return
+
+    max_bytes = MAX_COVERS_SIZE_MB * 1024 * 1024
+    current_size = get_covers_dir_size()
+
+    if current_size <= max_bytes:
+        return
+
+    print(f"📦 Covers cache ({current_size / 1024 / 1024:.1f}MB) exceeds limit ({MAX_COVERS_SIZE_MB}MB), cleaning up...", file=sys.stderr)
+
+    # Get all cover files with their access times
+    files_with_times = []
+    try:
+        for file in COVERS_DIR.iterdir():
+            if file.is_file():
+                files_with_times.append((file, file.stat().st_atime, file.stat().st_size))
+    except Exception as e:
+        print(f"❌ Error listing covers for cleanup: {e}", file=sys.stderr)
+        return
+
+    # Sort by access time (oldest first)
+    files_with_times.sort(key=lambda x: x[1])
+
+    # Remove oldest files until we're under the limit
+    removed_count = 0
+    removed_size = 0
+    for file, _, size in files_with_times:
+        if current_size - removed_size <= max_bytes:
+            break
+        try:
+            file.unlink()
+            removed_count += 1
+            removed_size += size
+            print(f"🗑️  Removed old cover: {file.name} ({size / 1024:.1f}KB)", file=sys.stderr)
+        except Exception as e:
+            print(f"⚠️  Failed to remove {file.name}: {e}", file=sys.stderr)
+
+    if removed_count > 0:
+        print(f"✅ Cleaned up {removed_count} covers, freed {removed_size / 1024 / 1024:.1f}MB", file=sys.stderr)
+
+async def download_cover(url: str, mam_id: str) -> tuple[str | None, int]:
+    """
+    Download cover image and save to local storage.
+    Returns tuple of (local_file_path, file_size) or (None, 0) on failure.
+    """
+    if MAX_COVERS_SIZE_MB == 0:
+        # Direct fetch mode - don't cache
+        print(f"ℹ️  MAX_COVERS_SIZE_MB=0, skipping download for direct fetch mode", file=sys.stderr)
+        return None, 0
+
+    try:
+        print(f"⬇️  Downloading cover from: {url}", file=sys.stderr)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Add auth header if it's an ABS URL
+            headers = {}
+            if ABS_BASE_URL and url.startswith(ABS_BASE_URL):
+                headers["Authorization"] = f"Bearer {ABS_API_KEY}"
+
+            r = await client.get(url, headers=headers, follow_redirects=True)
+
+            if r.status_code != 200:
+                print(f"⚠️  Failed to download cover: HTTP {r.status_code}", file=sys.stderr)
+                return None, 0
+
+            # Determine file extension from Content-Type or URL
+            content_type = r.headers.get("Content-Type", "")
+            ext = ".jpg"  # default
+            if "png" in content_type:
+                ext = ".png"
+            elif "webp" in content_type:
+                ext = ".webp"
+            elif "gif" in content_type:
+                ext = ".gif"
+            elif url.endswith(".png"):
+                ext = ".png"
+            elif url.endswith(".webp"):
+                ext = ".webp"
+
+            # Save to file
+            filename = f"{mam_id}{ext}"
+            filepath = COVERS_DIR / filename
+            file_size = len(r.content)
+
+            filepath.write_bytes(r.content)
+            print(f"✅ Saved cover: {filename} ({file_size / 1024:.1f}KB)", file=sys.stderr)
+
+            # Check if we need to cleanup old covers
+            cleanup_old_covers()
+
+            return str(filepath), file_size
+
+    except Exception as e:
+        print(f"❌ Failed to download cover from {url}: {type(e).__name__}: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return None, 0
+
+@app.get("/covers/{filename}")
+async def serve_cover(filename: str):
+    """Serve cached cover images."""
+    # Sanitize filename
+    filename = Path(filename).name  # Remove any path traversal attempts
+    filepath = COVERS_DIR / filename
+
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(status_code=404, detail="Cover not found")
+
+    return FileResponse(filepath)
+
 # ---------------------------- Audiobookshelf helpers ----------------------------
 def get_cached_cover(mam_id: str) -> dict:
     """
     Get cached cover from covers database by MAM ID.
-    Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
+    Returns dict with 'cover_url' (local or remote), 'item_id', 'is_local' if found, else empty dict.
     """
     if not mam_id:
         print(f"⚠️  get_cached_cover called with empty mam_id", file=sys.stderr)
@@ -183,15 +326,29 @@ def get_cached_cover(mam_id: str) -> dict:
     try:
         with covers_engine.begin() as cx:
             row = cx.execute(text("""
-                SELECT cover_url, abs_item_id, fetched_at, title, author
+                SELECT cover_url, abs_item_id, fetched_at, title, author, local_file
                 FROM covers
                 WHERE mam_id = :mam_id
                 LIMIT 1
             """), {"mam_id": mam_id}).fetchone()
 
             if row and row[0]:
-                print(f"📦 Cache HIT for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
-                return {"cover_url": row[0], "item_id": row[1]}
+                local_file = row[5]
+                # Check if local file exists
+                if local_file and Path(local_file).exists():
+                    # Return local cover path
+                    filename = Path(local_file).name
+                    local_url = f"/covers/{filename}"
+                    print(f"📦 Cache HIT (local) for MAM ID {mam_id}: {local_url} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
+                    return {"cover_url": local_url, "item_id": row[1], "is_local": True}
+                elif MAX_COVERS_SIZE_MB == 0:
+                    # Direct fetch mode - return remote URL
+                    print(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {row[0]} (title: '{row[3]}', fetched: {row[2]})", file=sys.stderr)
+                    return {"cover_url": row[0], "item_id": row[1], "is_local": False}
+                else:
+                    # Local file missing but should exist - return remote URL as fallback
+                    print(f"⚠️  Cache HIT but local file missing for MAM ID {mam_id}, using remote URL", file=sys.stderr)
+                    return {"cover_url": row[0], "item_id": row[1], "is_local": False}
 
         print(f"📦 Cache MISS for MAM ID {mam_id}", file=sys.stderr)
         return {}
@@ -201,11 +358,11 @@ def get_cached_cover(mam_id: str) -> dict:
         traceback.print_exc(file=sys.stderr)
         return {}
 
-def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None):
+async def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None):
     """
-    Save cover URL to covers database.
+    Save cover URL to covers database and download the image to local storage.
     Uses INSERT OR REPLACE to handle duplicates.
-    Also checks if the cover_url is already used by another MAM ID to avoid duplicate fetches.
+    Also checks if the cover_url is already used by another MAM ID to avoid duplicate downloads.
     """
     if not mam_id:
         print(f"⚠️  save_cover_to_cache called with empty mam_id", file=sys.stderr)
@@ -218,35 +375,57 @@ def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: st
     try:
         print(f"💾 Attempting to cache cover for MAM ID {mam_id}: {cover_url}", file=sys.stderr)
 
+        local_file = None
+        file_size = 0
+
+        # Check if we should download the cover
         with covers_engine.begin() as cx:
             # Check if this cover URL is already cached for a different MAM ID
             existing = cx.execute(text("""
-                SELECT mam_id, title FROM covers WHERE cover_url = :cover_url AND mam_id != :mam_id LIMIT 1
+                SELECT mam_id, title, local_file, file_size FROM covers
+                WHERE cover_url = :cover_url AND mam_id != :mam_id LIMIT 1
             """), {"cover_url": cover_url, "mam_id": mam_id}).fetchone()
 
-            if existing:
-                print(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing for {mam_id}.", file=sys.stderr)
+            if existing and existing[2]:
+                # Reuse existing downloaded cover
+                local_file = existing[2]
+                file_size = existing[3] or 0
+                print(f"ℹ️  Cover URL already cached for MAM ID {existing[0]} ('{existing[1]}'). Reusing local file: {Path(local_file).name}", file=sys.stderr)
+            elif MAX_COVERS_SIZE_MB > 0:
+                # Download the cover
+                local_file, file_size = await download_cover(cover_url, mam_id)
 
-            # Insert or replace the cover entry
-            result = cx.execute(text("""
-                INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, fetched_at)
-                VALUES (:mam_id, :title, :author, :cover_url, :item_id, :fetched_at)
+        # Get the final cover URL (local or remote)
+        final_cover_url = cover_url
+        if local_file and Path(local_file).exists():
+            filename = Path(local_file).name
+            final_cover_url = f"/covers/{filename}"
+
+        # Insert or replace the cover entry
+        with covers_engine.begin() as cx:
+            cx.execute(text("""
+                INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, local_file, file_size, fetched_at)
+                VALUES (:mam_id, :title, :author, :cover_url, :item_id, :local_file, :file_size, :fetched_at)
                 ON CONFLICT(mam_id) DO UPDATE SET
                     cover_url = :cover_url,
                     abs_item_id = :item_id,
                     title = :title,
                     author = :author,
+                    local_file = :local_file,
+                    file_size = :file_size,
                     fetched_at = :fetched_at
             """), {
                 "mam_id": mam_id,
                 "title": title,
                 "author": author,
-                "cover_url": cover_url,
+                "cover_url": cover_url,  # Keep original remote URL
                 "item_id": item_id,
+                "local_file": local_file,
+                "file_size": file_size,
                 "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             })
 
-            print(f"✅ Cached cover for MAM ID {mam_id}: {cover_url}", file=sys.stderr)
+            print(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}", file=sys.stderr)
 
         # Also update history table if there's an entry
         try:
@@ -259,7 +438,7 @@ def save_cover_to_cache(mam_id: str, cover_url: str, title: str = "", author: st
                     WHERE mam_id = :mam_id
                 """), {
                     "mam_id": mam_id,
-                    "cover_url": cover_url,
+                    "cover_url": final_cover_url,  # Use local URL if available
                     "item_id": item_id,
                     "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 })
@@ -332,11 +511,14 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                         print(f"✅ Found cover URL (dict): {cover_url}", file=sys.stderr)
 
                     if cover_url:
-                        result = {"cover_url": cover_url, "item_id": None}
                         # Cache the result if we have a MAM ID
                         if mam_id:
-                            save_cover_to_cache(mam_id, cover_url, title, author, None)
-                        return result
+                            await save_cover_to_cache(mam_id, cover_url, title, author, None)
+                            # Get the potentially updated cover URL (local path)
+                            cached = get_cached_cover(mam_id)
+                            if cached:
+                                return cached
+                        return {"cover_url": cover_url, "item_id": None}
                 else:
                     print(f"⚠️  No results from /api/search/covers", file=sys.stderr)
             else:
@@ -370,11 +552,14 @@ async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dic
                                 # Build cover URL
                                 cover_url = f"{ABS_BASE_URL}/api/items/{item_id}/cover"
                                 print(f"✅ Found cover in library: {cover_url}", file=sys.stderr)
-                                result = {"cover_url": cover_url, "item_id": item_id}
                                 # Cache the result if we have a MAM ID
                                 if mam_id:
-                                    save_cover_to_cache(mam_id, cover_url, title, author, item_id)
-                                return result
+                                    await save_cover_to_cache(mam_id, cover_url, title, author, item_id)
+                                    # Get the potentially updated cover URL (local path)
+                                    cached = get_cached_cover(mam_id)
+                                    if cached:
+                                        return cached
+                                return {"cover_url": cover_url, "item_id": item_id}
                     print(f"⚠️  No matching items in library for '{title}'", file=sys.stderr)
                 else:
                     print(f"⚠️  Library search failed: {r.text[:200]}", file=sys.stderr)
