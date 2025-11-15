@@ -19,6 +19,9 @@
     <button id="navHistory" class="nav-btn" title="View download history and imports">
       📋 History
     </button>
+    <button id="navShowcase" class="nav-btn" title="Browse audiobooks in grid view">
+      🎭 Showcase
+    </button>
     <button id="navLogs" class="nav-btn" title="View application logs">
       📄 Logs
     </button>
@@ -116,6 +119,25 @@
       <div id="logsContainer" class="logs-container">
         <pre id="logsContent">Loading logs...</pre>
       </div>
+    </div>
+
+    <div id="showcaseCard" class="card" style="margin-top:1rem; display:none">
+      <div class="showcase-header">
+        <h3>Audiobook Showcase</h3>
+        <div class="showcase-controls">
+          <input id="showcaseSearch" type="text" placeholder="Search audiobooks..." style="width: 300px">
+          <select id="showcaseLimit">
+            <option value="50">50 results</option>
+            <option value="100" selected>100 results</option>
+            <option value="200">200 results</option>
+            <option value="500">500 results</option>
+          </select>
+          <button id="showcaseSearchBtn" class="primary">🔍 Search</button>
+        </div>
+      </div>
+      <div id="showcaseStatus" class="muted" style="margin: 1rem 0;"></div>
+      <div id="showcaseGrid" class="showcase-grid"></div>
+      <div id="showcaseDetail" class="showcase-detail" style="display:none"></div>
     </div>
 
   <script src="/static/app.js?v=3" defer></script>

@@ -43,6 +43,8 @@ function getCurrentState() {
   let currentView = '';
   if (document.getElementById('historyCard')?.style.display === '') {
     currentView = 'history';
+  } else if (document.getElementById('showcaseCard')?.style.display === '') {
+    currentView = 'showcase';
   } else if (document.getElementById('logsCard')?.style.display === '') {
     currentView = 'logs';
   }
@@ -99,6 +101,7 @@ if (!urlState.q) {
 const views = {
   search: { card: null, navBtn: 'navSearch' },  // Search has no card, uses results table
   history: { card: 'historyCard', navBtn: 'navHistory' },
+  showcase: { card: 'showcaseCard', navBtn: 'navShowcase' },
   logs: { card: 'logsCard', navBtn: 'navLogs' }
 };
 
@@ -150,6 +153,12 @@ document.getElementById('navHistory')?.addEventListener('click', async () => {
   showView('history');
   await loadHistory();
   updateURL({ ...getCurrentState(), view: 'history' }, true);
+});
+
+document.getElementById('navShowcase')?.addEventListener('click', async () => {
+  showView('showcase');
+  await loadShowcase();
+  updateURL({ ...getCurrentState(), view: 'showcase' }, true);
 });
 
 document.getElementById('navLogs')?.addEventListener('click', async () => {
@@ -1027,6 +1036,9 @@ importBtn.addEventListener('click', async () => {
   if (state.view === 'history') {
     showView('history');
     await loadHistory();
+  } else if (state.view === 'showcase') {
+    showView('showcase');
+    await loadShowcase();
   } else if (state.view === 'logs') {
     showView('logs');
     await loadLogs();
@@ -1056,10 +1068,380 @@ window.addEventListener('popstate', async (event) => {
   if (state.view === 'history') {
     showView('history');
     await loadHistory();
+  } else if (state.view === 'showcase') {
+    showView('showcase');
+    await loadShowcase();
   } else if (state.view === 'logs') {
     showView('logs');
     await loadLogs();
   } else if (state.view === '' && state.q === '') {
     showView('search');
   }
+});
+
+// ---------- Showcase View ----------
+async function loadShowcase(query = '') {
+  const showcaseStatus = document.getElementById('showcaseStatus');
+  const showcaseGrid = document.getElementById('showcaseGrid');
+  const showcaseDetail = document.getElementById('showcaseDetail');
+
+  if (!showcaseGrid || !showcaseStatus) return;
+
+  try {
+    // Get search query from input if not provided
+    const searchInput = document.getElementById('showcaseSearch');
+    const limitSelect = document.getElementById('showcaseLimit');
+    const searchQuery = query || searchInput?.value?.trim() || '';
+    const limit = parseInt(limitSelect?.value || '100', 10);
+
+    showcaseStatus.textContent = 'Loading audiobooks...';
+    showcaseGrid.innerHTML = '';
+    showcaseDetail.style.display = 'none';
+
+    const params = new URLSearchParams({
+      query: searchQuery,
+      limit: limit.toString()
+    });
+
+    const resp = await fetch(`/showcase?${params}`);
+    if (!resp.ok) {
+      showcaseStatus.textContent = `Error loading showcase: HTTP ${resp.status}`;
+      return;
+    }
+
+    const data = await resp.json();
+
+    if (!data.groups || data.groups.length === 0) {
+      showcaseStatus.textContent = searchQuery
+        ? `No audiobooks found matching "${searchQuery}".`
+        : 'No audiobooks found. Try a different search.';
+      return;
+    }
+
+    showcaseStatus.textContent = `Showing ${data.total_groups} titles (${data.total_results} versions)`;
+    renderShowcaseGrid(data.groups);
+
+  } catch (error) {
+    console.error('Error loading showcase:', error);
+    showcaseStatus.textContent = `Error loading showcase: ${error.message}`;
+  }
+}
+
+function renderShowcaseGrid(groups) {
+  const showcaseGrid = document.getElementById('showcaseGrid');
+  if (!showcaseGrid) return;
+
+  showcaseGrid.innerHTML = '';
+
+  groups.forEach(group => {
+    const card = document.createElement('div');
+    card.className = 'showcase-card';
+    card.dataset.mamId = group.mam_id || '';
+    card.dataset.title = group.display_title || '';
+    card.dataset.author = group.author || '';
+
+    // Create cover skeleton (will be replaced by actual cover)
+    const coverSkeleton = document.createElement('div');
+    coverSkeleton.className = 'showcase-cover-skeleton';
+
+    // Create versions badge if multiple versions
+    const versionsBadge = document.createElement('div');
+    versionsBadge.className = 'showcase-versions-badge';
+    versionsBadge.textContent = `${group.total_versions} version${group.total_versions > 1 ? 's' : ''}`;
+
+    // Create title
+    const title = document.createElement('div');
+    title.className = 'showcase-title';
+    title.textContent = group.display_title || 'Unknown Title';
+
+    // Create author
+    const author = document.createElement('div');
+    author.className = 'showcase-author';
+    author.textContent = group.author || 'Unknown Author';
+
+    // Create formats
+    const formatsDiv = document.createElement('div');
+    formatsDiv.className = 'showcase-formats';
+    (group.formats || []).forEach(format => {
+      const badge = document.createElement('span');
+      badge.className = 'showcase-format-badge';
+      badge.textContent = format;
+      formatsDiv.appendChild(badge);
+    });
+
+    // Assemble card
+    card.appendChild(versionsBadge);
+    card.appendChild(coverSkeleton);
+    card.appendChild(title);
+    card.appendChild(author);
+    card.appendChild(formatsDiv);
+
+    // Click handler to show detail view
+    card.addEventListener('click', () => {
+      showShowcaseDetail(group);
+    });
+
+    showcaseGrid.appendChild(card);
+
+    // Lazy load cover
+    if (group.mam_id && group.display_title) {
+      loadShowcaseCover(coverSkeleton, group.mam_id, group.display_title, group.author);
+    } else {
+      // Replace skeleton with placeholder
+      const placeholder = document.createElement('div');
+      placeholder.className = 'showcase-cover-placeholder';
+      placeholder.textContent = 'No Cover';
+      coverSkeleton.replaceWith(placeholder);
+    }
+  });
+}
+
+async function loadShowcaseCover(skeletonEl, mamId, title, author) {
+  try {
+    const params = new URLSearchParams({
+      mam_id: mamId,
+      title: title || '',
+      author: author || ''
+    });
+
+    const resp = await fetch(`/api/covers/fetch?${params}`);
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+
+    if (data.cover_url) {
+      // Create image element
+      const img = document.createElement('img');
+      img.className = 'showcase-cover';
+      img.src = data.cover_url;
+      img.alt = title || 'Cover';
+      img.loading = 'lazy';
+
+      // Replace skeleton with image
+      img.onload = () => {
+        skeletonEl.replaceWith(img);
+      };
+
+      img.onerror = () => {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'showcase-cover-placeholder';
+        placeholder.textContent = '📚';
+        skeletonEl.replaceWith(placeholder);
+      };
+    } else {
+      // No cover available
+      const placeholder = document.createElement('div');
+      placeholder.className = 'showcase-cover-placeholder';
+      placeholder.textContent = '📚';
+      skeletonEl.replaceWith(placeholder);
+    }
+  } catch (error) {
+    console.error('Error loading cover:', error);
+    const placeholder = document.createElement('div');
+    placeholder.className = 'showcase-cover-placeholder';
+    placeholder.textContent = '📚';
+    skeletonEl.replaceWith(placeholder);
+  }
+}
+
+function showShowcaseDetail(group) {
+  const showcaseDetail = document.getElementById('showcaseDetail');
+  const showcaseGrid = document.getElementById('showcaseGrid');
+  if (!showcaseDetail) return;
+
+  // Hide grid, show detail
+  if (showcaseGrid) showcaseGrid.style.display = 'none';
+  showcaseDetail.style.display = '';
+
+  // Build detail view HTML
+  let html = '<button class="showcase-detail-close" id="showcaseDetailCloseBtn">✕ Close</button>';
+
+  html += '<div class="showcase-detail-header">';
+
+  // Cover
+  if (group.versions && group.versions[0]) {
+    html += '<div>';
+    html += `<div class="showcase-cover-skeleton" id="detailCoverSkeleton"></div>`;
+    html += '</div>';
+  }
+
+  // Info
+  html += '<div class="showcase-detail-info">';
+  html += `<h2 class="showcase-detail-title">${escapeHtml(group.display_title || 'Unknown Title')}</h2>`;
+  if (group.author) {
+    html += `<div class="showcase-detail-author">by ${escapeHtml(group.author)}</div>`;
+  }
+  if (group.narrator) {
+    html += `<div class="showcase-detail-narrator">Narrated by ${escapeHtml(group.narrator)}</div>`;
+  }
+  html += '<div class="showcase-formats">';
+  (group.formats || []).forEach(format => {
+    html += `<span class="showcase-format-badge">${escapeHtml(format)}</span>`;
+  });
+  html += '</div>';
+  html += '</div>'; // Close info
+  html += '</div>'; // Close header
+
+  // Versions table
+  html += '<h3>Available Versions (' + group.total_versions + ')</h3>';
+  html += '<table class="showcase-versions-table">';
+  html += '<thead><tr>';
+  html += '<th>Title</th>';
+  html += '<th>Format</th>';
+  html += '<th class="right">Size</th>';
+  html += '<th class="right">Seeders</th>';
+  html += '<th>Added</th>';
+  html += '<th class="center">Link</th>';
+  html += '<th>Add</th>';
+  html += '</tr></thead>';
+  html += '<tbody>';
+
+  (group.versions || []).forEach((version, idx) => {
+    const detailsURL = version.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(version.id)}` : '';
+    html += '<tr>';
+    html += `<td>${escapeHtml(version.title || 'Unknown')}</td>`;
+    html += `<td>${escapeHtml(version.format || '')}</td>`;
+    html += `<td class="right">${formatSize(version.size)}</td>`;
+    html += `<td class="right">${version.seeders || 0}</td>`;
+    html += `<td>${version.added || ''}</td>`;
+    html += `<td class="center">`;
+    if (detailsURL) {
+      html += `<a href="${detailsURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>`;
+    }
+    html += `</td>`;
+    html += `<td>`;
+    html += `<button class="showcase-add-btn" data-version-idx="${idx}">Add</button>`;
+    html += `</td>`;
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+
+  showcaseDetail.innerHTML = html;
+
+  // Add event listener for close button
+  const closeBtn = document.getElementById('showcaseDetailCloseBtn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeShowcaseDetail);
+  }
+
+  // Add event listeners for all Add buttons
+  const addButtons = showcaseDetail.querySelectorAll('.showcase-add-btn');
+  addButtons.forEach(btn => {
+    const versionIdx = parseInt(btn.dataset.versionIdx, 10);
+    const version = group.versions[versionIdx];
+    if (!version) return;
+
+    btn.disabled = !(version.dl || version.id);
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Adding…';
+      try {
+        const resp = await fetch('/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: String(version.id || ''),
+            title: version.title || '',
+            dl: version.dl || '',
+            author: group.author || '',
+            narrator: group.narrator || '',
+            abs_cover_url: '',
+            abs_item_id: ''
+          })
+        });
+        if (!resp.ok) {
+          let msg = `HTTP ${resp.status}`;
+          try {
+            const j = await resp.json();
+            if (j?.detail) msg += ` — ${j.detail}`;
+          } catch {}
+          throw new Error(msg);
+        }
+        btn.textContent = 'Added';
+        await loadHistory();
+      } catch (e) {
+        console.error(e);
+        btn.textContent = 'Error';
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Load cover for first version
+  if (group.mam_id && group.display_title) {
+    setTimeout(() => {
+      const skeleton = document.getElementById('detailCoverSkeleton');
+      if (skeleton) {
+        loadDetailCover(skeleton, group.mam_id, group.display_title, group.author);
+      }
+    }, 100);
+  }
+
+  // Scroll to detail
+  showcaseDetail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function loadDetailCover(skeletonEl, mamId, title, author) {
+  try {
+    const params = new URLSearchParams({
+      mam_id: mamId,
+      title: title || '',
+      author: author || ''
+    });
+
+    const resp = await fetch(`/api/covers/fetch?${params}`);
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+
+    if (data.cover_url) {
+      const img = document.createElement('img');
+      img.className = 'showcase-detail-cover';
+      img.src = data.cover_url;
+      img.alt = title || 'Cover';
+
+      img.onload = () => {
+        skeletonEl.replaceWith(img);
+      };
+
+      img.onerror = () => {
+        skeletonEl.style.display = 'none';
+      };
+    } else {
+      skeletonEl.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error loading detail cover:', error);
+    skeletonEl.style.display = 'none';
+  }
+}
+
+function closeShowcaseDetail() {
+  const showcaseDetail = document.getElementById('showcaseDetail');
+  const showcaseGrid = document.getElementById('showcaseGrid');
+
+  if (showcaseDetail) showcaseDetail.style.display = 'none';
+  if (showcaseGrid) showcaseGrid.style.display = '';
+}
+
+// Showcase controls
+document.getElementById('showcaseSearchBtn')?.addEventListener('click', async () => {
+  const searchInput = document.getElementById('showcaseSearch');
+  await loadShowcase(searchInput?.value || '');
+});
+
+document.getElementById('showcaseSearch')?.addEventListener('keypress', async (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    await loadShowcase(e.target.value || '');
+  }
+});
+
+document.getElementById('showcaseLimit')?.addEventListener('change', async () => {
+  await loadShowcase();
 });
