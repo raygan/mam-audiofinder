@@ -27,11 +27,14 @@ def build_mam_cookie():
 
 MAM_COOKIE = build_mam_cookie()
 
+# ---------------------------- Import Configuration ----------------------------
+DL_DIR = os.getenv("DL_DIR", "/media/torrents")
+
 # ---------------------------- qBittorrent Configuration ----------------------------
 QB_URL = os.getenv("QB_URL", "http://qbittorrent:8080").rstrip("/")
 QB_USER = os.getenv("QB_USER", "admin")
 QB_PASS = os.getenv("QB_PASS", "adminadmin")
-QB_SAVEPATH = os.getenv("QB_SAVEPATH", "")  # optional
+QB_SAVEPATH = os.getenv("QB_SAVEPATH", DL_DIR)  # defaults to DL_DIR if not set
 QB_TAGS = os.getenv("QB_TAGS", "MAM,audiobook")  # optional
 QB_CATEGORY = os.getenv("QB_CATEGORY", "mam-audiofinder")
 QB_POSTIMPORT_CATEGORY = os.getenv("QB_POSTIMPORT_CATEGORY", "")  # "" = clear; or set e.g. "imported"
@@ -42,9 +45,6 @@ ABS_BASE_URL = os.getenv("ABS_BASE_URL", "").rstrip("/")
 ABS_API_KEY = os.getenv("ABS_API_KEY", "")
 ABS_LIBRARY_ID = os.getenv("ABS_LIBRARY_ID", "")
 MAX_COVERS_SIZE_MB = int(os.getenv("MAX_COVERS_SIZE_MB", "500"))  # 0 = direct fetch only (not recommended)
-
-# ---------------------------- Import Configuration ----------------------------
-DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
 IMPORT_MODE = os.getenv("IMPORT_MODE", "link")  # link|copy|move
 FLATTEN_DISCS = os.getenv("FLATTEN_DISCS", "true").lower() in ("true", "1", "yes")  # flatten multi-disc to sequential files
