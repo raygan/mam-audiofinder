@@ -34,9 +34,32 @@
 ```
 mam-audiofinder/
 ├── app/
-│   ├── main.py                 # FastAPI application (core logic)
+│   ├── main.py                 # FastAPI application bootstrap
+│   ├── config.py               # Configuration and env vars
+│   ├── db/
+│   │   ├── __init__.py        # Database module exports
+│   │   ├── db.py              # Database engines and migrations
+│   │   └── migrations/        # SQL migration files
+│   │       ├── 001_initial_schema.sql
+│   │       ├── 002_add_author_narrator.sql
+│   │       ├── 003_add_imported_at.sql
+│   │       ├── 004_add_abs_columns.sql
+│   │       └── 005_create_covers_table.sql
+│   ├── abs_client.py          # Audiobookshelf API client
+│   ├── covers.py              # CoverService class
+│   ├── qb_client.py           # qBittorrent API helpers
+│   ├── utils.py               # Utility functions
+│   ├── routes/
+│   │   ├── __init__.py        # Routes aggregation
+│   │   ├── basic.py           # Health and config endpoints
+│   │   ├── search.py          # MAM search endpoint
+│   │   ├── history.py         # History CRUD endpoints
+│   │   ├── qbittorrent.py     # qBittorrent and add endpoints
+│   │   ├── import_route.py    # Import endpoint
+│   │   └── covers_route.py    # Cover serving endpoint
 │   ├── static/
 │   │   ├── app.js             # Frontend JavaScript
+│   │   ├── css/               # Stylesheets (dark theme)
 │   │   ├── favicon*.png       # Icons
 │   │   └── screenshots/       # README images
 │   └── templates/
@@ -80,18 +103,120 @@ User Import → POST /import → Validate Paths → Copy/Link/Move Files → Upd
 
 ## Key Files & Modules
 
-### `/app/main.py` (646 lines)
+### `/app/main.py` (~70 lines)
 
-**Primary application file containing:**
+**Application bootstrap file:**
+- Logging configuration setup
+- Database initialization via migrations
+- FastAPI app creation
+- Static file mounting
+- Route registration
+- Startup event handlers
 
-#### Configuration (lines 11-48)
-- Environment variable loading
-- MAM cookie handling
+### `/app/config.py` (~70 lines)
+
+**Configuration module:**
+- Environment variable loading and parsing
+- MAM cookie building
 - qBittorrent connection settings
+- Audiobookshelf configuration
 - Import behavior settings (link/copy/move)
 - UMASK application
 
-#### Database Schema (lines 50-78)
+### `/app/db/db.py` (~90 lines)
+
+**Database management module:**
+- SQLAlchemy engine creation (history.db and covers.db)
+- Migration system implementation
+- SQL migration file execution
+- Connection pool configuration for concurrent operations
+
+### `/app/db/migrations/*.sql`
+
+**SQL migration files:**
+- `001_initial_schema.sql` - Initial history table
+- `002_add_author_narrator.sql` - Author/narrator columns
+- `003_add_imported_at.sql` - Import tracking
+- `004_add_abs_columns.sql` - Audiobookshelf integration
+- `005_create_covers_table.sql` - Cover caching system
+
+### `/app/abs_client.py` (~170 lines)
+
+**Audiobookshelf API client class:**
+- `AudiobookshelfClient` class with connection testing
+- Cover fetching from ABS `/api/search/covers` endpoint
+- Library item search for cover URLs
+- Integration with CoverService for caching
+
+### `/app/covers.py` (~220 lines)
+
+**Cover management service:**
+- `CoverService` class for cover operations
+- Cover caching to local filesystem
+- Automatic cleanup when exceeding MAX_COVERS_SIZE_MB
+- Cover download with proper authentication
+- Database integration for cache lookups
+
+### `/app/qb_client.py` (~20 lines)
+
+**qBittorrent API helpers:**
+- Async and sync login functions
+- Session management
+
+### `/app/utils.py` (~70 lines)
+
+**Utility functions:**
+- `sanitize()` - Filename sanitization
+- `next_available()` - Find non-conflicting paths
+- `extract_disc_track()` - Parse disc/track numbers
+- `try_hardlink()` - Attempt hardlink creation
+
+### `/app/routes/` Package
+
+**Modular route definitions:**
+
+#### `routes/basic.py`
+- `GET /` - Serve main UI
+- `GET /health` - Health check
+- `GET /config` - Return app configuration
+
+#### `routes/search.py`
+- `POST /search` - Search MAM for audiobooks
+- Helper functions: `flatten()`, `detect_format()`
+
+#### `routes/history.py`
+- `GET /history` - Get torrent history
+- `DELETE /history/{row_id}` - Delete history entry
+
+#### `routes/qbittorrent.py`
+- `GET /qb/torrents` - List completed torrents
+- `POST /add` - Add torrent to qBittorrent
+
+#### `routes/import_route.py`
+- `POST /import` - Import torrent to library
+- Helper function: `copy_one()`
+
+#### `routes/covers_route.py`
+- `GET /covers/{filename}` - Serve cached cover images
+
+## API Endpoints
+
+| Route | Method | Purpose | Module |
+|-------|--------|---------|--------|
+| `/` | GET | Serve UI | routes/basic.py |
+| `/health` | GET | Health check | routes/basic.py |
+| `/config` | GET | Return config | routes/basic.py |
+| `/search` | POST | Search MAM | routes/search.py |
+| `/add` | POST | Add to qBittorrent | routes/qbittorrent.py |
+| `/history` | GET | Fetch history | routes/history.py |
+| `/history/{id}` | DELETE | Remove history item | routes/history.py |
+| `/qb/torrents` | GET | List completed torrents | routes/qbittorrent.py |
+| `/import` | POST | Import to library | routes/import_route.py |
+| `/covers/{filename}` | GET | Serve cover image | routes/covers_route.py |
+
+## Database Schemas
+
+### History Table
 ```sql
 CREATE TABLE history (
   id INTEGER PRIMARY KEY,
@@ -100,63 +225,34 @@ CREATE TABLE history (
   author TEXT,
   narrator TEXT,
   dl TEXT,
-  added_at TEXT,
+  added_at TEXT DEFAULT (datetime('now')),
   qb_status TEXT,
   qb_hash TEXT,
-  imported_at TEXT
+  imported_at TEXT,
+  abs_item_id TEXT,
+  abs_cover_url TEXT,
+  abs_cover_cached_at TEXT
 )
 ```
 
-#### Endpoints
+### Covers Cache Table
+```sql
+CREATE TABLE covers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mam_id TEXT UNIQUE NOT NULL,
+  title TEXT,
+  author TEXT,
+  cover_url TEXT NOT NULL,
+  abs_item_id TEXT,
+  local_file TEXT,
+  file_size INTEGER,
+  fetched_at TEXT DEFAULT (datetime('now'))
+)
+```
 
-| Route | Method | Purpose | Lines |
-|-------|--------|---------|-------|
-| `/` | GET | Serve UI | 97-99 |
-| `/health` | GET | Health check | 86-88 |
-| `/config` | GET | Return config | 90-95 |
-| `/search` | POST | Search MAM | 102-199 |
-| `/add` | POST | Add to qBittorrent | 217-331 |
-| `/history` | GET | Fetch history | 334-343 |
-| `/history/{id}` | DELETE | Remove history item | 345-349 |
-| `/qb/torrents` | GET | List completed torrents | 352-386 |
-| `/import` | POST | Import to library | 479-646 |
+## Key Features & Implementations
 
-#### Core Functions
-
-**`flatten(v)` (lines 142-165)**
-- Normalizes MAM API response data (handles dicts, lists, JSON strings)
-- Converts author/narrator info to comma-separated strings
-
-**`detect_format(item)` (lines 167-177)**
-- Extracts file format from torrent metadata
-- Uses regex to find audio formats (MP3, M4B, FLAC, etc.)
-
-**`qb_login(client)` (lines 202-207)**
-- Authenticates with qBittorrent WebUI
-- Returns session cookie for subsequent requests
-
-**`sanitize(name)` (lines 395-397)**
-- Cleans filenames for filesystem compatibility
-- Replaces colons, slashes, backslashes
-
-**`next_available(path)` (lines 399-407)**
-- Finds non-conflicting path by appending (2), (3), etc.
-- Prevents overwriting existing files/folders
-
-**`extract_disc_track(path, root)` (lines 409-445)**
-- Parses disc/track numbers from file paths
-- Supports patterns: "Disc 01", "Track 01", "Chapter 01", etc.
-- Returns (disc_num, track_num, extension) tuple
-
-**`try_hardlink(src, dst)` (lines 447-452)**
-- Attempts to create hardlink
-- Falls back gracefully on failure (returns False)
-
-**`copy_one(src, dst)` (lines 454-471)**
-- Implements copy/link/move based on IMPORT_MODE
-- Returns action taken: "linked", "copied", or "moved"
-
-#### FLATTEN_DISCS Feature (lines 564-587)
+### FLATTEN_DISCS Feature
 **Problem:** Multi-disc audiobooks have structure like:
 ```
 Book/Disc 01/Track 01.mp3
@@ -169,10 +265,24 @@ Book/Part 001.mp3
 Book/Part 002.mp3
 ```
 
-**Implementation:**
-1. Extract disc/track numbers from all files
+**Implementation** (in `routes/import_route.py`):
+1. Extract disc/track numbers from all files using `extract_disc_track()`
 2. Sort by (disc_num, track_num)
 3. Rename sequentially as "Part 001.mp3", "Part 002.mp3", etc.
+
+### Cover Caching System
+**Architecture:**
+- Separate `covers.db` database for caching
+- Local file storage in `/data/covers/`
+- Automatic cleanup when exceeding MAX_COVERS_SIZE_MB
+- Connection pooling for concurrent fetches
+
+**Implementation** (in `covers.py`):
+1. Check cache by MAM ID
+2. If miss, fetch from Audiobookshelf API
+3. Download and save image locally
+4. Store metadata in covers database
+5. Return local URL (`/covers/{filename}`) or remote URL
 
 ### `/app/static/app.js` (375 lines)
 
@@ -427,13 +537,18 @@ volumes:
   - /mnt/storage/Books:/books
 ```
 
-**Path Mapping Logic (main.py:516-524):**
+**Path Mapping Logic** (in `routes/import_route.py`):
 ```python
 def map_qb_path(p: str) -> str:
     # qB returns /downloads/Book
     # This app needs /media/torrents/Book
-    if p.startswith("/downloads"):
-        return p.replace("/downloads", "/media/torrents", 1)
+    prefix = QB_INNER_DL_PREFIX.rstrip("/")
+    if p == prefix or p.startswith(prefix + "/"):
+        return p.replace(QB_INNER_DL_PREFIX, DL_DIR, 1)
+    if p.startswith("/media/"):
+        return p
+    p = p.replace("/mnt/user/media", "/media", 1)
+    p = p.replace("/mnt/media", "/media", 1)
     return p
 ```
 
@@ -512,28 +627,43 @@ def copy_one(src: Path, dst: Path) -> str:
 
 ### Database Migrations
 
-**Pattern: Idempotent ALTER TABLE**
-```python
-# Add columns if missing (lines 66-78)
-for ddl in (
-    "ALTER TABLE history ADD COLUMN author TEXT",
-    "ALTER TABLE history ADD COLUMN narrator TEXT"
-):
-    try:
-        cx.execute(text(ddl))
-    except Exception:
-        pass  # Column already exists
+**New Migration System:**
+Migrations are now stored in SQL files in `app/db/migrations/` and executed at startup by `db/db.py`:
+
+**Adding a new migration:**
+1. Create a new file: `app/db/migrations/006_my_change.sql`
+2. Write idempotent SQL (use `IF NOT EXISTS` or expect errors for duplicates)
+3. Migration runs automatically on next app startup
+
+**Example migration file:**
+```sql
+-- 006_add_new_column.sql
+ALTER TABLE history ADD COLUMN my_column TEXT;
 ```
+
+**Migration execution:**
+- Migrations run in numerical order (001, 002, 003...)
+- Each statement executed independently
+- Errors are logged but don't stop other migrations (allows idempotency)
+- Migrations 001-004 target `history.db`, 005+ target `covers.db`
 
 ## Recent Development History
 
 ### Recent Features & Fixes
 
-1. **Hardlink Verification & Display** (commit 32616c9)
+1. **Code Refactoring & Modularization** (v0.4.0)
+   - Split monolithic main.py into modular components
+   - Created dedicated modules: config.py, db/, covers.py, abs_client.py, utils.py, qb_client.py
+   - Organized routes into routes/ package with separate files per domain
+   - Implemented SQL migration system in db/migrations/
+   - Wrapped cover logic in CoverService class
+   - Improved code maintainability and testability
+
+2. **Hardlink Verification & Display** (commit 32616c9)
    - Added visual feedback showing whether files were hardlinked vs copied
    - Improved transparency in import process
 
-2. **FLATTEN_DISCS Feature** (commit 6dcdd84)
+3. **FLATTEN_DISCS Feature** (commit 6dcdd84)
    - Automatically reorganizes multi-disc audiobooks
    - Solves Audiobookshelf compatibility issues
    - Default enabled, configurable via env var
@@ -572,13 +702,22 @@ for ddl in (
 ### Adding a New Endpoint
 
 ```python
-# 1. Define endpoint in main.py
-@app.post("/new-feature")
+# 1. Create route in appropriate file (or new file in app/routes/)
+# Example: app/routes/my_feature.py
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.post("/new-feature")
 async def new_feature(body: dict):
     # Implementation
     return {"ok": True}
 
-# 2. Add frontend call in app.js
+# 2. Register router in app/routes/__init__.py
+from .my_feature import router as my_feature_router
+main_router.include_router(my_feature_router)
+
+# 3. Add frontend call in app.js
 async function callNewFeature() {
     const r = await fetch('/new-feature', {
         method: 'POST',
@@ -588,8 +727,8 @@ async function callNewFeature() {
     return r.json();
 }
 
-# 3. Test manually
-# 4. Commit with descriptive message
+# 4. Test manually
+# 5. Commit with descriptive message
 ```
 
 ### Adding Environment Variable
@@ -598,15 +737,18 @@ async function callNewFeature() {
 # 1. Add to env.example
 NEW_SETTING=default_value
 
-# 2. Load in main.py config section
+# 2. Add to app/config.py
 NEW_SETTING = os.getenv("NEW_SETTING", "default_value")
 
-# 3. Add validation in validate_env.py if needed
+# 3. Import in modules that need it
+from config import NEW_SETTING
+
+# 4. Add validation in validate_env.py if needed
 if not os.getenv("NEW_SETTING"):
     warnings.append("WARNING: NEW_SETTING not set...")
 
-# 4. Document in README.md
-# 5. Update CLAUDE.md environment table
+# 5. Document in README.md
+# 6. Update CLAUDE.md environment table
 ```
 
 ### Debugging Import Issues
@@ -645,14 +787,22 @@ raise HTTPException(
 
 ### Adding Database Column
 
-```python
-# Use idempotent pattern
-with engine.begin() as cx:
-    try:
-        cx.execute(text("ALTER TABLE history ADD COLUMN new_field TEXT"))
-    except Exception:
-        pass  # Column already exists
+```sql
+# 1. Create a new migration file
+# app/db/migrations/006_add_new_field.sql
+
+-- Add new column to history table
+ALTER TABLE history ADD COLUMN new_field TEXT;
+
+-- (Optional) Create index if needed
+CREATE INDEX IF NOT EXISTS idx_history_new_field ON history(new_field);
 ```
+
+**Notes:**
+- Use the next available number (001, 002, 003, etc.)
+- Migration runs automatically on next container restart
+- SQL will error if column exists, but migration system handles this gracefully
+- For covers table, use migration number >= 005
 
 ## Security Considerations
 
