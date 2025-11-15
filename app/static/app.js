@@ -8,8 +8,50 @@ const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
 const showHistoryBtn = document.getElementById('showHistoryBtn');
 
-// Focus the search box
-if (q) q.focus();
+// ---------- URL State Management ----------
+function getStateFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    q: params.get('q') || '',
+    sort: params.get('sort') || 'default',
+    perpage: params.get('perpage') || '25',
+    view: params.get('view') || ''
+  };
+}
+
+function updateURL(state, replace = false) {
+  const params = new URLSearchParams();
+
+  if (state.q) params.set('q', state.q);
+  if (state.sort && state.sort !== 'default') params.set('sort', state.sort);
+  if (state.perpage && state.perpage !== '25') params.set('perpage', state.perpage);
+  if (state.view) params.set('view', state.view);
+
+  const newURL = params.toString()
+    ? `${window.location.pathname}?${params.toString()}`
+    : window.location.pathname;
+
+  if (replace) {
+    window.history.replaceState(state, '', newURL);
+  } else {
+    window.history.pushState(state, '', newURL);
+  }
+}
+
+function getCurrentState() {
+  return {
+    q: (q?.value || '').trim(),
+    sort: (sortSel?.value) || 'default',
+    perpage: (perpageSel?.value) || '25',
+    view: document.getElementById('historyCard').style.display === '' ? 'history' : ''
+  };
+}
+
+// Focus the search box (unless we're restoring state from URL)
+const urlState = getStateFromURL();
+if (!urlState.q) {
+  if (q) q.focus();
+}
 
 // ---------- Health check ----------
 (async () => {
@@ -29,6 +71,9 @@ if (showHistoryBtn) {
     card.style.display = '';           // reveal card
     await loadHistory();               // populate
     card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Update URL to reflect history view
+    updateURL(getCurrentState(), true);
   });
 }
 
@@ -235,6 +280,9 @@ async function runSearch() {
     // Show table immediately with skeleton placeholders
     table.style.display = '';
     statusEl.textContent = `${rows.length} results shown`;
+
+    // Update URL with search parameters
+    updateURL(getCurrentState(), true);
 
     // Load history in parallel (non-blocking)
     loadHistory().catch(e => console.error('Failed to load history:', e));
@@ -488,3 +536,62 @@ importBtn.addEventListener('click', async () => {
     console.error('history load failed', e);
   }
 }
+
+// ---------- Page Load: Restore State from URL ----------
+(async () => {
+  const state = getStateFromURL();
+
+  // Pre-populate form inputs from URL
+  if (state.q) {
+    if (q) q.value = state.q;
+  }
+  if (state.sort) {
+    if (sortSel) sortSel.value = state.sort;
+  }
+  if (state.perpage) {
+    if (perpageSel) perpageSel.value = state.perpage;
+  }
+
+  // Auto-run search if query parameter exists
+  if (state.q) {
+    await runSearch();
+  }
+
+  // Auto-open history if view=history
+  if (state.view === 'history') {
+    const card = document.getElementById('historyCard');
+    card.style.display = '';
+    await loadHistory();
+  }
+})();
+
+// ---------- Handle Browser Back/Forward Navigation ----------
+window.addEventListener('popstate', async (event) => {
+  const state = event.state || getStateFromURL();
+
+  // Restore form inputs
+  if (q) q.value = state.q || '';
+  if (sortSel) sortSel.value = state.sort || 'default';
+  if (perpageSel) perpageSel.value = state.perpage || '25';
+
+  // Re-run search if query exists
+  if (state.q) {
+    await runSearch();
+  } else {
+    // Clear search results if no query
+    table.style.display = 'none';
+    tbody.innerHTML = '';
+    statusEl.textContent = '';
+  }
+
+  // Toggle history view based on URL
+  const card = document.getElementById('historyCard');
+  if (state.view === 'history') {
+    card.style.display = '';
+    await loadHistory();
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    // Don't hide history if it's already visible - user might want it open
+    // card.style.display = 'none';
+  }
+});
