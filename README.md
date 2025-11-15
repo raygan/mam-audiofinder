@@ -47,6 +47,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 | `ABS_BASE_URL`         | *(Optional)* Audiobookshelf URL for fetching cover images (e.g. `http://audiobookshelf:13378`) |
 | `ABS_API_KEY`          | *(Optional)* Audiobookshelf API key/token for authentication                |
 | `ABS_LIBRARY_ID`       | *(Optional)* Specific Audiobookshelf library ID to search within            |
+| `MAX_COVERS_SIZE_MB`   | Max disk space for cached covers in MB (default `500`, `0` = direct fetch only, NOT recommended) |
 | `MEDIA_ROOT`           | Host path that contains both torrent downloads and Audiobookshelf library   |
 | `DATA_DIR`             | Host path where this app stores its state (e.g. SQLite DB)                  |
 | `DL_DIR`               | In-container path for qBittorrent downloads (default `/media/torrents`)     |
