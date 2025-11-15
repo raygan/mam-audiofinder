@@ -1,4 +1,4 @@
-import os, json, re
+import os, json, re, asyncio
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -31,6 +31,11 @@ QB_TAGS     = os.getenv("QB_TAGS", "MAM,audiobook")  # optional
 
 QB_CATEGORY = os.getenv("QB_CATEGORY", "mam-audiofinder")
 QB_POSTIMPORT_CATEGORY = os.getenv("QB_POSTIMPORT_CATEGORY", "")  # "" = clear; or set e.g. "imported"
+
+# Audiobookshelf integration (optional)
+ABS_BASE_URL = os.getenv("ABS_BASE_URL", "").rstrip("/")
+ABS_API_KEY = os.getenv("ABS_API_KEY", "")
+ABS_LIBRARY_ID = os.getenv("ABS_LIBRARY_ID", "")
 
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
@@ -71,11 +76,22 @@ with engine.begin() as cx:
             cx.execute(text(ddl))
         except Exception:
             pass
-        
+
     try:
         cx.execute(text("ALTER TABLE history ADD COLUMN imported_at TEXT"))
     except Exception:
         pass
+
+    # Add Audiobookshelf columns if missing (idempotent)
+    for ddl in (
+        "ALTER TABLE history ADD COLUMN abs_item_id TEXT",
+        "ALTER TABLE history ADD COLUMN abs_cover_url TEXT",
+        "ALTER TABLE history ADD COLUMN abs_cover_cached_at TEXT"
+    ):
+        try:
+            cx.execute(text(ddl))
+        except Exception:
+            pass
 
 # ---------------------------- App ----------------------------
 app = FastAPI(title="MAM Audiobook Finder", version="0.3.0")
@@ -97,6 +113,147 @@ async def config():
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+# ---------------------------- Audiobookshelf helpers ----------------------------
+def get_cached_cover(mam_id: str) -> dict:
+    """
+    Get cached cover from database by MAM ID.
+    Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
+    """
+    if not mam_id:
+        return {}
+
+    try:
+        with engine.begin() as cx:
+            row = cx.execute(text("""
+                SELECT abs_cover_url, abs_item_id, abs_cover_cached_at
+                FROM history
+                WHERE mam_id = :mam_id AND abs_cover_url IS NOT NULL
+                ORDER BY added_at DESC
+                LIMIT 1
+            """), {"mam_id": mam_id}).fetchone()
+
+            if row and row[0]:
+                return {"cover_url": row[0], "item_id": row[1]}
+
+        return {}
+    except Exception as e:
+        print(f"Warning: Failed to get cached cover: {e}")
+        return {}
+
+def save_cover_to_cache(mam_id: str, cover_url: str, item_id: str = None):
+    """
+    Save cover URL to database cache for a MAM ID.
+    Updates the most recent history entry for this MAM ID.
+    """
+    if not mam_id or not cover_url:
+        return
+
+    try:
+        with engine.begin() as cx:
+            cx.execute(text("""
+                UPDATE history
+                SET abs_cover_url = :cover_url,
+                    abs_item_id = :item_id,
+                    abs_cover_cached_at = :cached_at
+                WHERE mam_id = :mam_id
+                AND id = (SELECT id FROM history WHERE mam_id = :mam_id ORDER BY added_at DESC LIMIT 1)
+            """), {
+                "mam_id": mam_id,
+                "cover_url": cover_url,
+                "item_id": item_id,
+                "cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            })
+    except Exception as e:
+        print(f"Warning: Failed to cache cover: {e}")
+
+async def fetch_abs_cover(title: str, author: str = "", mam_id: str = "") -> dict:
+    """
+    Fetch cover image URL from Audiobookshelf.
+    Returns dict with 'cover_url' and 'item_id' if found, else empty dict.
+    Checks cache first if mam_id is provided.
+    """
+    # Check cache first
+    if mam_id:
+        cached = get_cached_cover(mam_id)
+        if cached:
+            return cached
+
+    if not ABS_BASE_URL or not ABS_API_KEY:
+        return {}
+
+    if not title:
+        return {}
+
+    try:
+        headers = {"Authorization": f"Bearer {ABS_API_KEY}"}
+        params = {"title": title}
+        if author:
+            params["author"] = author
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Try the search/covers endpoint first
+            r = await client.get(
+                f"{ABS_BASE_URL}/api/search/covers",
+                headers=headers,
+                params=params
+            )
+
+            if r.status_code == 200:
+                data = r.json()
+                results = data.get("results", [])
+                if results and len(results) > 0:
+                    # Take the first result
+                    first_result = results[0]
+                    cover_url = None
+                    if isinstance(first_result, str):
+                        # It's just a URL
+                        cover_url = first_result
+                    elif isinstance(first_result, dict):
+                        # It might have more structure
+                        cover_url = first_result.get("cover") or first_result.get("url") or str(first_result)
+
+                    if cover_url:
+                        result = {"cover_url": cover_url, "item_id": None}
+                        # Cache the result if we have a MAM ID
+                        if mam_id:
+                            save_cover_to_cache(mam_id, cover_url, None)
+                        return result
+
+        # If no results from search/covers, try searching library items
+        if ABS_LIBRARY_ID:
+            async with httpx.AsyncClient(timeout=10) as client:
+                # Search within library using filter
+                r = await client.get(
+                    f"{ABS_BASE_URL}/api/libraries/{ABS_LIBRARY_ID}/items",
+                    headers=headers,
+                    params={"limit": 5, "minified": "1"}
+                )
+
+                if r.status_code == 200:
+                    data = r.json()
+                    results = data.get("results", [])
+                    # Simple title matching (case-insensitive)
+                    title_lower = title.lower()
+                    for item in results:
+                        item_title = (item.get("media", {}).get("metadata", {}).get("title") or "").lower()
+                        if title_lower in item_title or item_title in title_lower:
+                            item_id = item.get("id")
+                            if item_id:
+                                # Build cover URL
+                                cover_url = f"{ABS_BASE_URL}/api/items/{item_id}/cover"
+                                result = {"cover_url": cover_url, "item_id": item_id}
+                                # Cache the result if we have a MAM ID
+                                if mam_id:
+                                    save_cover_to_cache(mam_id, cover_url, item_id)
+                                return result
+
+        return {}
+
+    except Exception as e:
+        # Don't fail the whole request if ABS is down
+        print(f"Warning: Audiobookshelf cover fetch failed: {e}")
+        return {}
 
 # ---------------------------- Search ----------------------------
 @app.post("/search")
@@ -192,6 +349,24 @@ async def search(payload: dict):
             "dl": item.get("dl"),
         })
 
+    # Fetch covers from Audiobookshelf (if configured)
+    if ABS_BASE_URL and ABS_API_KEY and out:
+        # Fetch covers in parallel for all results
+        cover_tasks = []
+        for result in out:
+            title = result.get("title") or ""
+            author = result.get("author_info") or ""
+            mam_id = result.get("id") or ""
+            cover_tasks.append(fetch_abs_cover(title, author, mam_id))
+
+        cover_results = await asyncio.gather(*cover_tasks, return_exceptions=True)
+
+        # Add cover URLs to results
+        for i, cover_data in enumerate(cover_results):
+            if isinstance(cover_data, dict) and cover_data:
+                out[i]["abs_cover_url"] = cover_data.get("cover_url")
+                out[i]["abs_item_id"] = cover_data.get("item_id")
+
     return JSONResponse({
         "results": out,
         "total": raw.get("total"),
@@ -213,6 +388,8 @@ class AddBody(BaseModel):
     dl: str | None = None
     author: str | None = None
     narrator: str | None = None
+    abs_cover_url: str | None = None
+    abs_item_id: str | None = None
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -270,12 +447,17 @@ async def add_to_qb(body: AddBody):
 
                 with engine.begin() as cx:
                     cx.execute(text("""
-                        INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-                        VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
+                        INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at,
+                                           abs_cover_url, abs_item_id, abs_cover_cached_at)
+                        VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at,
+                                :abs_cover_url, :abs_item_id, :abs_cover_cached_at)
                     """), {
                         "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
                         "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
                         "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                        "abs_cover_url": body.abs_cover_url,
+                        "abs_item_id": body.abs_item_id,
+                        "abs_cover_cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if body.abs_cover_url else None,
                     })
                 return {"ok": True}
             # else: fall through to cookie fetch
@@ -320,12 +502,17 @@ async def add_to_qb(body: AddBody):
 
         with engine.begin() as cx:
             cx.execute(text("""
-                INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-                VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
+                INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at,
+                                   abs_cover_url, abs_item_id, abs_cover_cached_at)
+                VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at,
+                        :abs_cover_url, :abs_item_id, :abs_cover_cached_at)
             """), {
                 "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
                 "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
                 "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                "abs_cover_url": body.abs_cover_url,
+                "abs_item_id": body.abs_item_id,
+                "abs_cover_cached_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if body.abs_cover_url else None,
             })
 
     return {"ok": True}
@@ -335,7 +522,8 @@ async def add_to_qb(body: AddBody):
 def history():
     with engine.begin() as cx:
         rows = cx.execute(text("""
-            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status
+            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status,
+                   abs_cover_url, abs_item_id
             FROM history
             ORDER BY id DESC
             LIMIT 200

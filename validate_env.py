@@ -43,6 +43,28 @@ def validate_env():
             "WARNING: MAM_COOKIE is not set. Search functionality will not work."
         )
 
+    # Check Audiobookshelf configuration
+    abs_url = os.getenv("ABS_BASE_URL")
+    abs_key = os.getenv("ABS_API_KEY")
+
+    if abs_url and not abs_key:
+        warnings.append(
+            "WARNING: ABS_BASE_URL is set but ABS_API_KEY is missing.\n"
+            "         Cover image fetching from Audiobookshelf will not work.\n"
+            "         Set ABS_API_KEY to enable cover integration."
+        )
+    elif abs_key and not abs_url:
+        warnings.append(
+            "WARNING: ABS_API_KEY is set but ABS_BASE_URL is missing.\n"
+            "         Cover image fetching from Audiobookshelf will not work.\n"
+            "         Set ABS_BASE_URL to enable cover integration."
+        )
+    elif not abs_url and not abs_key:
+        warnings.append(
+            "INFO: Audiobookshelf integration not configured (ABS_BASE_URL/ABS_API_KEY).\n"
+            "      Cover images will not be fetched. This is optional."
+        )
+
     # Print results
     if warnings:
         print("\n".join(warnings), file=sys.stderr)

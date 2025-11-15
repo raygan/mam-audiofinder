@@ -10,11 +10,11 @@
 - [ ] Capture before/after screenshots and confirm no bright background flashes remain.
 
 ## 2. Audiobookshelf Cover Fetch & Caching
-- [ ] Add env vars to `.env.example`/`README.md` (`ABS_BASE_URL`, `ABS_API_KEY`, optional library ID) and extend `validate_env.py` with helpful warnings when missing.
-- [ ] Implement `fetch_abs_cover(title, author)` helper in `app/main.py` (or new module) that queries ABS API for closest match, returning cover URL + ABS book id.
-- [ ] Extend SQLite `history` table with nullable columns (`abs_book_id`, `abs_cover_url`, `abs_cover_cached_at`); ensure migration is idempotent.
-- [ ] On `/search`, after fetching MAM results, attempt ABS cover lookup per title/author (async gather to avoid blocking) and attach to response payload.
-- [ ] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
+- [x] Add env vars to `.env.example`/`README.md` (`ABS_BASE_URL`, `ABS_API_KEY`, optional library ID) and extend `validate_env.py` with helpful warnings when missing.
+- [x] Implement `fetch_abs_cover(title, author)` helper in `app/main.py` (or new module) that queries ABS API for closest match, returning cover URL + ABS book id.
+- [x] Extend SQLite `history` table with nullable columns (`abs_item_id`, `abs_cover_url`, `abs_cover_cached_at`); ensure migration is idempotent.
+- [x] On `/search`, after fetching MAM results, attempt ABS cover lookup per title/author (async gather to avoid blocking) and attach to response payload.
+- [x] Cache successful lookups in DB to avoid repeated API calls; consider storing small cover thumbnails in `/data/covers` if ABS hosting disallows hotlinking.
 - [ ] Add `/covers/refresh/{mam_id}` endpoint or background task to refresh stale entries (e.g., older than 30 days).
 
 ## 3. Display Covers With Grouped Searches
