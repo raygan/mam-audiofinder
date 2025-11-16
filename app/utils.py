@@ -105,3 +105,101 @@ def try_hardlink(src: Path, dst: Path) -> bool:
             f"Error: {e.__class__.__name__}: {e}"
         )
         return False
+
+
+def normalize_title(title: str) -> str:
+    """
+    Normalize book title for series search matching.
+
+    Rules:
+    - Convert to lowercase
+    - Remove leading articles (The, A, An)
+    - Remove subtitles (text after :, -, –, —)
+    - Remove special characters
+    - Normalize whitespace
+
+    Examples:
+        "The Stormlight Archive: The Way of Kings" → "stormlight archive"
+        "Harry Potter and the Philosopher's Stone" → "harry potter and the philosophers stone"
+        "Project Hail Mary" → "project hail mary"
+    """
+    if not title:
+        return ""
+
+    normalized = title.lower().strip()
+
+    # Remove leading articles
+    normalized = re.sub(r'^(the|a|an)\s+', '', normalized, flags=re.IGNORECASE)
+
+    # Remove subtitles (after colon or dash variants)
+    normalized = re.sub(r'[:\-–—].+$', '', normalized)
+
+    # Remove special characters, keep only alphanumeric and spaces
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+
+    return normalized
+
+
+def normalize_author(author: str) -> str:
+    """
+    Normalize author name for matching.
+
+    Rules:
+    - Convert to lowercase
+    - Normalize whitespace
+    - Remove special characters except spaces
+
+    Examples:
+        "Brandon Sanderson" → "brandon sanderson"
+        "J.R.R. Tolkien" → "jrr tolkien"
+    """
+    if not author:
+        return ""
+
+    normalized = author.lower().strip()
+
+    # Remove periods and special characters
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+
+    return normalized
+
+
+def generate_card_guid(mam_id: str = "", title: str = "", author: str = "") -> str:
+    """
+    Generate unique identifier for a card.
+
+    Priority:
+    1. Use MAM ID if available (unique per torrent)
+    2. Generate hash from normalized title + author
+
+    Examples:
+        mam_id="123456" → "mam-123456"
+        title="Project Hail Mary", author="Andy Weir" → "card-abc123def"
+    """
+    if mam_id:
+        return f"mam-{mam_id}"
+
+    # Generate hash from normalized title + author
+    normalized = f"{normalize_title(title)}||{normalize_author(author)}"
+    return f"card-{simple_hash(normalized)}"
+
+
+def simple_hash(text: str) -> str:
+    """
+    Generate simple hash for string (for cache keys, GUIDs, etc.).
+
+    Uses basic string hashing algorithm, returns base36 representation.
+    """
+    hash_value = 0
+    for char in text:
+        hash_value = ((hash_value << 5) - hash_value) + ord(char)
+        hash_value = hash_value & 0xFFFFFFFF  # Convert to 32-bit integer
+
+    # Return absolute value as base36 string
+    return format(abs(hash_value), 'x')[:12]  # Limit to 12 chars
