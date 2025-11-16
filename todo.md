@@ -94,8 +94,11 @@ Remaining:
 
 ## 9 Fix Showcase errors
 - [x] Debug and resolve why covers do not load in like in search feild require multiple refreshes to trigger feeding from cache this suggests retry or batch logic is flawed here
+- [ ] Change cover helper logic to send covers in batches instead of all at once
+- [ ] only search one cover per grouped showcase title
 - [x] the '# versions' text is behind the cover
 - [x] hitting back after clicking on a book send you to the search page with the query posed fix
+- [ ] cache mam request for a 5 minutes so that pressing the back button does not result in another mam call. make this a helper which aplies across all searches
 - [x] add in book title urls when clicking on a book in showcase view
 - [x] prevent showcase from sending an empty query to mam when first clicked
 ---
