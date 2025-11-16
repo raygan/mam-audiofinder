@@ -57,16 +57,16 @@
 
 ---
 
-## 5. Display Covers With Grouped Searches (“Showcase” Mode)
-- [ ] Create a new helper function for showcase_mode
-- [ ] Create new page link from toolbar that shows showcase mode
-- [ ] use existing .sql databases or expand if necessary
-- [ ] Add a search window from 'search bar' (default 100 results)
-- [ ] Group searches by normalized title in audible style grid instead of a list table
-- [ ] Render shared cover
-- [ ] When a cover is clicked open the list of audiobooks in a list view below on title's own page  
-- [ ] Responsive layout  
-- [ ] Lazy-load covers  
+## 5. Display Covers With Grouped Searches (“Showcase” Mode) — *Completed*
+- [x] Create a new helper function for showcase_mode
+- [x] Create new page link from toolbar that shows showcase mode
+- [x] use existing .sql databases or expand if necessary
+- [x] Add a search window from 'search bar' (default 100 results)
+- [x] Group searches by normalized title in audible style grid instead of a list table
+- [x] Render shared cover
+- [x] When a cover is clicked open the list of audiobooks in a list view below on title's own page  
+- [x] Responsive layout  
+- [x] Lazy-load covers  
 
 ---
 
@@ -77,30 +77,10 @@
 - [x] Implement `CoverService`  
 - [x] Progressive image rendering  
 
----
-## 7. Metadata & Testing Prep 
-- [ ] Add a migration for abs_description (plus optional abs_description_source) and plumb it through /search + /history responses.
-- [ ] Extend AudiobookshelfClient to fetch description/synopsis fields (e.g., /api/items/{id}) so the stretch goal has raw data available.
-- [ ] Introduce a tests/ package with coverage for search payload construction and cover caching to keep regressions visible.
-- [ ] Document the progressive cover workflow in README.md so future contributors understand how metadata flows from ABS → cache → UI. ## 8. ABS Import Verification
-- [ ] Review abs-api-agents.md for the canonical import verification flow (endpoints, payloads, expected responses) so we align with existing automation.
-- [ ] Add abs_verify_status + abs_verify_note columns via migration to record Audiobookshelf verification outcomes.
-- [ ] Implement an ABS client helper (verify_import) that cross-checks imported titles/authors against /api/items (or the specific endpoint noted in abs-api-agents.md) and validates duration/file counts.
-- [ ] Update the import route to call the verification helper post-import and persist the verdict (verified imported vs mismatch) along with any diagnostic note.
-- [ ] Surface the verification state in /history output and update the frontend to display a green “Verified import” badge or a warning if ABS reports a mismatch.
-- [ ] Add regression coverage/mocking around the verification call so failures don’t break imports when ABS is unreachable. ## 9. ABS Metadata Delivery Strategy
-- [ ] Prototype feeding Audiobookshelf book metadata via a generated metadata.json alongside imported files; validate what fields ABS honors.
-- [ ] Compare that with calling the ABS upload endpoint directly for metadata injection to determine which path keeps data fresher and simpler.
-- [ ] Document the chosen approach (and trade-offs) so future ABS uploads keep descriptions, narrators, and cover hints in sync.
-- [ ] Read the Audiobookshelf upload API (POST /api/upload) docs to understand required headers, JSON, and multipart fields.
-- [ ] Add .env fields for ABS_UPLOAD_LIBRARY_ID and optional ABS_PATH_MAP (format local:/abs) so we can translate qBittorrent save paths into ABS-accessible paths.
-- [ ] Implement path translation helper that maps a local filesystem path (e.g., /media/torrents/book) to the ABS server path (/audiobooks/book) using the map or defaults.
-- [ ] Create a FastAPI endpoint or background job that, after import completion, calls the ABS upload API with the final file/folder, library ID, and metadata. Handle failures with retries and structured logging.
-- [ ] Store upload response (ABS item id/status) in the history table to avoid duplicate uploads and power UI indicators.
-- [ ] Document the new feature (env config, ABS permissions, expected behavior) in README/AGENTS so users can enable it safely.
+
 ---
 
-## ✔ 10. Top-Level Task Bar — *Completed*
+## ✔ 7. Top-Level Task Bar — *Completed*
 - [x] Add persistent task bar
 - [x] Extract to helper
 - [x] Design logs view
@@ -108,19 +88,199 @@
 
 ---
 
-## Stretch Goal: Book Descriptions & Enhanced Search
-- [ ] Fetch ABS descriptions  
-- [ ] Optional Audible fallback  
-- [ ] Display descriptions in grouped view  
-- [ ] Add grouped filters  
-- [ ] Document features  
-
----
-
-# ✔ COMPLETED FEATURE — Flatten UI With Tree View
+## 8. — Flatten UI With Tree View
 
 All backend, frontend, Python syntax validation, and documentation tasks are complete.
 
 Remaining:  
 - [x] Manual testing (run-time verification)
 
+---
+# MAM Audiobook Finder - Refined Todo List
+
+## Phase 1. ABS Import Verification System
+*Verify that imports successfully appear in Audiobookshelf after completion*
+
+### Database Schema Updates
+- [ ] **Create migration 006_add_abs_verification.sql** in `app/db/migrations/`
+  - Add `abs_verify_status` column (TEXT) to history table - stores 'verified', 'mismatch', 'pending', or 'unreachable'
+  - Add `abs_verify_note` column (TEXT) to history table - stores diagnostic messages like "Title mismatch: expected 'X' found 'Y'" or "Not found in library"
+  - Migration should target history.db and use ALTER TABLE statements with proper NULL defaults
+
+### ABS Verification Client Implementation
+- [ ] **Extend AudiobookshelfClient class** in `app/abs_client.py` with verification methods:
+  - Add `verify_import(title: str, author: str, library_path: str) -> dict` method
+  - Review `abs-api-agents.md` line references for `/api/items` endpoint (source/includes/_items.md:3) to understand query parameters and response schema
+  - Method should search ABS library using title/author, checking if item exists at expected path
+  - Return structured result: `{"status": "verified|mismatch|not_found", "note": "details", "abs_item_id": "id if found"}`
+  - Handle connection failures gracefully, returning status='unreachable' without breaking import flow
+
+### Import Route Integration
+- [ ] **Update import endpoint** in `app/routes/import_route.py`:
+  - After successful file copy/link operations, instantiate AudiobookshelfClient
+  - Call `verify_import()` with sanitized title, author, and destination path
+  - Store verification results in database using UPDATE query on history table
+  - Log verification outcomes at INFO level for debugging
+  - Ensure verification failures don't rollback successful imports (wrap in try/except)
+
+### Frontend Verification Display
+- [ ] **Enhance history view** in `app/static/js/views/historyView.js`:
+  - Update history API response in `routes/history.py` to include `abs_verify_status` and `abs_verify_note` fields
+  - Add visual indicators to history table based on verification status:
+    - Green checkmark badge (✓) for 'verified' status
+    - Yellow warning icon (⚠) for 'mismatch' with hover tooltip showing note
+    - Gray question mark (?) for 'pending' or 'unreachable'
+  - Position badges consistently with existing status indicators
+
+### Resilience & Testing
+- [ ] **Add verification resilience**:
+  - Implement retry logic with exponential backoff (max 3 attempts) in verification client
+  - Add `ABS_VERIFY_TIMEOUT` env variable (default 10 seconds) to config.py
+  - Mock ABS responses in development when `ABS_URL` is not configured
+  - Log all verification attempts and outcomes to app.log for troubleshooting
+
+## Phase 2. ABS Library Visibility Feature
+*Show which search results already exist in your Audiobookshelf library*
+
+### Search Enhancement Backend
+- [ ] **Extend search endpoint** in `app/routes/search.py`:
+  - After MAM search results return, create list of title/author pairs
+  - Batch query Audiobookshelf `/api/libraries/{id}/items` endpoint (see _libraries.md:3) with filter parameters
+  - Match results based on fuzzy title/author comparison (use existing fuzzy matching logic from torrent_helpers.py)
+  - Add `in_abs_library` boolean field to each search result
+  - Cache library check results in memory for 5 minutes to reduce ABS API calls
+
+### Frontend Library Indicators
+- [ ] **Update search view** in `app/static/js/views/searchView.js`:
+  - Create a helper which implements the following items modularly:
+  - Modify search result rendering to check for `in_abs_library` flag
+  - Add green checkmark overlay to cover images for items in library
+  - Position checkmark in bottom-right corner with semi-transparent background
+  - Use CSS class `.in-library` with ::after pseudo-element for checkmark (✓)
+  - Add hover tooltip "Already in your library"
+
+### Update Showcase View     
+  - [ ] **Update showcase view** repurpose library_indicator helper to show if any title matches in a group for showcase. 
+
+### Configuration
+- [ ] **Add library visibility settings** to `app/config.py`:
+  - Add `ABS_CHECK_LIBRARY` boolean env variable (default False) to enable/disable feature
+  - Add `ABS_LIBRARY_CACHE_TTL` integer (default 300 seconds) for cache duration
+  - Update env.example with new variables and descriptions
+
+## Phase 3. ABS Description Fetching
+*Pull book descriptions from Audiobookshelf to enhance UI*
+
+### Database Schema for Descriptions
+- [ ] **Create migration 007_add_abs_description.sql**:
+  - Add `abs_description` column (TEXT) to history table - stores book synopsis
+  - Add `abs_description_source` column (TEXT) - tracks where description came from ('abs', 'mam', 'manual')
+  - Consider adding description to covers table for showcase view enhancement
+  - Do NOT add to search to prevent crowding
+
+### Description Fetching Implementation
+- [ ] **Extend AudiobookshelfClient** in `app/abs_client.py`:
+  - Add `fetch_item_details(item_id: str) -> dict` method
+  - Use `/api/items/{id}` endpoint (see _items.md schema) to get full item metadata
+  - Extract description/synopsis field from response
+  - Handle missing descriptions gracefully (return None)
+  - Add caching layer to avoid repeated fetches for same item
+
+### API Response Enhancement
+- [ ] **Update data responses** to include descriptions:
+  - Modify `/api/history` endpoint to include `abs_description` and `abs_description_source`
+  - Update `/search` endpoint to attempt description fetch when cover is fetched
+  - Add description to showcase view data (`/api/showcase` if implemented)
+
+### Frontend Description Display
+- [ ] **Add description rendering**:
+  - Update history and showcase views to display descriptions when available
+  - Create expandable description sections with "Show more/less" for long text
+  - Style descriptions with proper typography and spacing
+  - Add source indicator (small "via Audiobookshelf" text)
+
+## Phase 4. Testing Infrastructure
+*Establish testing framework for critical functionality*
+
+### Test Framework Setup
+- [ ] **Create tests/ package structure**:
+  ```
+  tests/
+  ├── __init__.py
+  ├── conftest.py          # pytest configuration and fixtures
+  ├── test_search.py       # MAM search payload construction tests
+  ├── test_covers.py       # Cover caching and cleanup tests
+  ├── test_verification.py # ABS verification logic tests
+  └── test_helpers.py      # Utility function tests
+  ```
+
+### Core Test Coverage
+- [ ] **Implement search tests** in `test_search.py`:
+  - Test search payload construction with various parameter combinations
+  - Verify proper MAM cookie handling
+  - Test response parsing and flattening logic
+  - Mock httpx calls to avoid actual MAM API requests
+
+- [ ] **Implement cover tests** in `test_covers.py`:
+  - Test cache hit/miss scenarios
+  - Verify automatic cleanup when exceeding MAX_COVERS_SIZE_MB
+  - Test concurrent cover fetches with connection pooling
+  - Mock ABS API responses for predictable testing
+
+- [ ] **Implement verification tests** in `test_verification.py`:
+  - Test successful verification scenarios
+  - Test mismatch detection logic
+  - Test resilience when ABS is unreachable
+  - Verify database updates occur correctly
+
+### Test Execution
+- [ ] **Add test commands to documentation**:
+  - Document pytest installation in requirements-dev.txt
+  - Add test execution instructions to CLAUDE.md
+  - Create GitHub Actions workflow for automated testing (optional)
+
+## Phase 5. Documentation Updates
+*Keep documentation aligned with new features*
+
+### README.md Updates
+- [ ] **Document verification feature**:
+  - Add "Import Verification" section explaining automatic ABS checks
+  - Document verification status indicators in UI
+  - Explain when verification runs and how to interpret results
+  - Add troubleshooting for common verification issues
+
+- [ ] **Document library visibility feature**:
+  - Explain green checkmark indicators on search results
+  - Document ABS_CHECK_LIBRARY configuration
+  - Note performance implications of library checking
+
+- [ ] **Document progressive cover workflow**:
+  - Explain cover fetching from MAM → ABS → local cache
+  - Document cache management and cleanup
+  - Describe lazy loading behavior in UI
+
+### CLAUDE.md Updates
+- [ ] **Add new module documentation**:
+  - Document verification helper functions
+  - Update abs_client.py section with new methods
+  - Add test package structure and patterns
+  - Update database schema section with new columns
+
+- [ ] **Update Architecture & Data Flow**:
+  - Add verification workflow diagram
+  - Update cover caching workflow with library check
+  - Document description fetching flow
+
+### Configuration Documentation
+- [ ] **Update env.example** with new variables:
+  - ABS_VERIFY_TIMEOUT (optional, default 10)
+  - ABS_CHECK_LIBRARY (optional, default false)
+  - ABS_LIBRARY_CACHE_TTL (optional, default 300)
+  - Remove deprecated ABS_LIBRARY_ID references
+  
+# TO-DO IN FUTURE
+## Stretch Goal: Book Descriptions & Enhanced Search
+- [ ] Add Hardcover API Endpoint  
+- [ ] Optional Audible fallback  
+- [ ] Create a series tab to display series and order
+- [ ] Import entire series and then add items to series on abs
