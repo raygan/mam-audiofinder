@@ -151,7 +151,7 @@ Remaining:
   - Add `in_abs_library` boolean field to each search result
   - Cache library check results in memory for 5 minutes to reduce ABS API calls
 
-### Frontend Library Indicators -partially complete debug on library view needed
+### Frontend Library Indicators -partially complete debug on search view needed
 - [ ] **Update search view** in `app/static/js/views/searchView.js`:
   - Create a helper which implements the following items modularly:
   - Modify search result rendering to check for `in_abs_library` flag
