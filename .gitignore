@@ -1,6 +1,24 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+test-results/
+*.log
 
 # Environment & local data
 .env
@@ -9,5 +27,8 @@ __pycache__/
 
 # OS/editor
 .DS_Store
+*.swp
+*.swo
+*~
 
 AGENTS.md
