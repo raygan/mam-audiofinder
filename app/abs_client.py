@@ -30,6 +30,8 @@ class AudiobookshelfClient:
         # In-memory cache for library items: {cache_key: (result, timestamp)}
         self._library_cache: Dict[str, Tuple[bool, float]] = {}
         self._library_items_cache: Optional[Tuple[List[dict], float]] = None
+        # In-memory cache for item metadata: {item_id: (metadata_dict, timestamp)}
+        self._metadata_cache: Dict[str, Tuple[dict, float]] = {}
 
         # Initialize shared client and semaphore if not already done
         if AudiobookshelfClient._shared_client is None:
@@ -335,14 +337,30 @@ class AudiobookshelfClient:
                                     # Build cover URL
                                     cover_url = f"{self.base_url}/api/items/{item_id}/cover"
                                     logger.info(f"✅ Found cover in library: {cover_url}")
+
+                                    # Fetch full item metadata (including description)
+                                    item_details = await self.fetch_item_details(item_id)
+                                    description = item_details.get("description", "") if item_details else ""
+                                    metadata_json = item_details.get("metadata", {}) if item_details else {}
+
                                     # Cache the result if we have a MAM ID
                                     if mam_id:
-                                        await cover_service.save_cover_to_cache(mam_id, cover_url, title, author, item_id)
+                                        await cover_service.save_cover_to_cache(
+                                            mam_id, cover_url, title, author, item_id,
+                                            description=description,
+                                            metadata_json=metadata_json
+                                        )
                                         # Get the potentially updated cover URL (local path)
                                         cached = cover_service.get_cached_cover(mam_id)
                                         if cached:
                                             return cached
-                                    return {"cover_url": cover_url, "item_id": item_id}
+
+                                    result = {"cover_url": cover_url, "item_id": item_id}
+                                    if description:
+                                        result["description"] = description
+                                    if metadata_json:
+                                        result["metadata"] = metadata_json
+                                    return result
                         logger.warning(f"⚠️  No matching items in library for '{title}'")
                     else:
                         logger.warning(f"⚠️  Library search failed: {r.text[:200]}")
@@ -615,6 +633,104 @@ class AudiobookshelfClient:
             "note": "Unknown error during verification",
             "abs_item_id": None
         }
+
+    async def fetch_item_details(self, item_id: str) -> dict:
+        """
+        Fetch full item metadata from Audiobookshelf.
+
+        Args:
+            item_id: ABS item ID to fetch details for
+
+        Returns:
+            Dict with full metadata including:
+            - description: Book synopsis/description (if available)
+            - metadata: Full metadata object from ABS (excluding chapters)
+            - item_id: The ABS item ID
+            Empty dict {} if fetch fails or item not found.
+
+        Uses in-memory caching with TTL to reduce API calls.
+        """
+        if not self.is_configured:
+            logger.debug("📚 ABS not configured, skipping item details fetch")
+            return {}
+
+        if not item_id:
+            logger.warning("⚠️  No item_id provided for fetch_item_details")
+            return {}
+
+        # Check cache first
+        current_time = time.time()
+        if item_id in self._metadata_cache:
+            cached_metadata, cached_time = self._metadata_cache[item_id]
+            if current_time - cached_time < ABS_LIBRARY_CACHE_TTL:
+                logger.debug(f"📦 Using cached metadata for item {item_id}")
+                return cached_metadata
+
+        logger.info(f"🌐 Fetching item details from ABS for item {item_id}")
+
+        try:
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+
+            # Use shared client with semaphore to limit concurrent requests
+            async with self._request_semaphore:
+                r = await self._shared_client.get(
+                    f"{self.base_url}/api/items/{item_id}",
+                    headers=headers,
+                    params={"expanded": "1"}  # Get expanded metadata
+                )
+
+                logger.info(f"📡 ABS item details response: HTTP {r.status_code}")
+
+                if r.status_code != 200:
+                    logger.warning(f"⚠️  Item details fetch failed: HTTP {r.status_code}")
+                    return {}
+
+                data = r.json()
+
+                # Extract relevant metadata (exclude chapters to save space)
+                media = data.get("media", {})
+                metadata = media.get("metadata", {})
+
+                # Build result with description and full metadata
+                result = {
+                    "item_id": item_id,
+                    "description": metadata.get("description", ""),
+                    "metadata": {
+                        # Core fields
+                        "title": metadata.get("title", ""),
+                        "subtitle": metadata.get("subtitle", ""),
+                        "authors": metadata.get("authors", []),
+                        "authorName": metadata.get("authorName", ""),
+                        "narratorName": metadata.get("narratorName", ""),
+                        "narrators": metadata.get("narrators", []),
+                        "series": metadata.get("series", []),
+                        "genres": metadata.get("genres", []),
+                        "tags": metadata.get("tags", []),
+                        "publisher": metadata.get("publisher", ""),
+                        "publishedYear": metadata.get("publishedYear", ""),
+                        "publishedDate": metadata.get("publishedDate", ""),
+                        "language": metadata.get("language", ""),
+                        "isbn": metadata.get("isbn", ""),
+                        "asin": metadata.get("asin", ""),
+                        "description": metadata.get("description", ""),
+                        "explicit": metadata.get("explicit", False),
+                        "abridged": metadata.get("abridged", False),
+                        # Media info (duration, etc.)
+                        "duration": media.get("duration"),
+                        "size": media.get("size"),
+                        "coverPath": media.get("coverPath", ""),
+                    }
+                }
+
+                # Cache the result
+                self._metadata_cache[item_id] = (result, current_time)
+                logger.info(f"✅ Fetched and cached metadata for '{metadata.get('title', 'Unknown')}'")
+
+                return result
+
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch item details for {item_id}: {type(e).__name__}: {e}")
+            return {}
 
 
 # Global instance

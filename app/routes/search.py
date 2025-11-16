@@ -204,12 +204,18 @@ async def fetch_cover(
 
             if result and result.get("cover_url"):
                 logger.info(f"✅ Cover fetch succeeded for '{title}' on attempt {attempt + 1}")
-                return JSONResponse({
+                response = {
                     "mam_id": mam_id,
                     "cover_url": result.get("cover_url"),
                     "item_id": result.get("item_id"),
                     "error": None
-                })
+                }
+                # Include description and metadata if available
+                if result.get("description"):
+                    response["description"] = result.get("description")
+                if result.get("metadata"):
+                    response["metadata"] = result.get("metadata")
+                return JSONResponse(response)
             else:
                 # No cover found, but not an error - don't retry
                 logger.info(f"ℹ️  No cover found for '{title}'")

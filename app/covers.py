@@ -136,7 +136,7 @@ class CoverService:
     def get_cached_cover(self, mam_id: str) -> dict:
         """
         Get cached cover from covers database by MAM ID.
-        Returns dict with 'cover_url' (local or remote), 'item_id', 'is_local' if found, else empty dict.
+        Returns dict with 'cover_url' (local or remote), 'item_id', 'is_local', 'description', 'metadata' if found, else empty dict.
         """
         if not mam_id:
             logger.warning(f"⚠️  get_cached_cover called with empty mam_id")
@@ -145,41 +145,64 @@ class CoverService:
         try:
             with covers_engine.begin() as cx:
                 row = cx.execute(text("""
-                    SELECT cover_url, abs_item_id, fetched_at, title, author, local_file
+                    SELECT cover_url, abs_item_id, fetched_at, title, author, local_file, abs_description, abs_metadata
                     FROM covers
                     WHERE mam_id = :mam_id
                     LIMIT 1
                 """), {"mam_id": mam_id}).fetchone()
 
                 if row and row[0]:
+                    import json
                     cover_url = row[0]
                     item_id = row[1]
                     title = row[3]
                     author = row[4]
                     local_file = row[5]
+                    description = row[6] if len(row) > 6 else None
+                    metadata_json_str = row[7] if len(row) > 7 else None
+
+                    # Parse metadata JSON
+                    metadata = None
+                    if metadata_json_str:
+                        try:
+                            metadata = json.loads(metadata_json_str)
+                        except Exception as e:
+                            logger.warning(f"⚠️  Failed to parse metadata JSON for MAM ID {mam_id}: {e}")
+
+                    # Base result dict
+                    result = {"item_id": item_id}
+                    if description:
+                        result["description"] = description
+                    if metadata:
+                        result["metadata"] = metadata
+
                     # Check if local file exists
                     if local_file and Path(local_file).exists():
                         # Return local cover path
                         filename = Path(local_file).name
                         local_url = f"/covers/{filename}"
                         logger.info(f"📦 Cache HIT (local) for MAM ID {mam_id}: {local_url} (title: '{row[3]}', fetched: {row[2]})")
-                        return {"cover_url": local_url, "item_id": item_id, "is_local": True}
+                        result["cover_url"] = local_url
+                        result["is_local"] = True
+                        return result
                     elif MAX_COVERS_SIZE_MB == 0:
                         # Direct fetch mode - return remote URL
                         logger.info(f"📦 Cache HIT (direct) for MAM ID {mam_id}: {cover_url} (title: '{row[3]}', fetched: {row[2]})")
-                        return {"cover_url": cover_url, "item_id": item_id, "is_local": False}
+                        result["cover_url"] = cover_url
+                        result["is_local"] = False
+                        return result
                     else:
                         # Local file missing but should exist - signal healing
                         logger.warning(f"⚠️  Cache HIT but local file missing for MAM ID {mam_id}, using remote URL")
-                        return {
+                        result.update({
                             "cover_url": cover_url,
-                            "item_id": item_id,
                             "is_local": False,
                             "needs_heal": True,
                             "source_cover_url": cover_url,
                             "title": title,
                             "author": author,
-                        }
+                        })
+                        return result
 
             logger.info(f"📦 Cache MISS for MAM ID {mam_id}")
             return {}
@@ -188,11 +211,20 @@ class CoverService:
             logger.exception("Get cached cover traceback:")
             return {}
 
-    async def save_cover_to_cache(self, mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None):
+    async def save_cover_to_cache(self, mam_id: str, cover_url: str, title: str = "", author: str = "", item_id: str = None, description: str = "", metadata_json: dict = None):
         """
         Save cover URL to covers database and download the image to local storage.
         Uses INSERT OR REPLACE to handle duplicates.
         Also checks if the cover_url is already used by another MAM ID to avoid duplicate downloads.
+
+        Args:
+            mam_id: MAM torrent ID
+            cover_url: URL to cover image
+            title: Book title
+            author: Author name
+            item_id: ABS item ID (if from library)
+            description: Book description from ABS
+            metadata_json: Full ABS metadata dict for future extensibility
         """
         if not mam_id:
             logger.warning(f"⚠️  save_cover_to_cache called with empty mam_id")
@@ -234,11 +266,15 @@ class CoverService:
                 filename = Path(local_file).name
                 final_cover_url = f"/covers/{filename}"
 
+            # Prepare metadata JSON string
+            import json
+            metadata_json_str = json.dumps(metadata_json) if metadata_json else None
+
             # Insert or replace the cover entry (separate connection block)
             with covers_engine.begin() as cx:
                 cx.execute(text("""
-                    INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, local_file, file_size, fetched_at)
-                    VALUES (:mam_id, :title, :author, :cover_url, :item_id, :local_file, :file_size, :fetched_at)
+                    INSERT INTO covers (mam_id, title, author, cover_url, abs_item_id, local_file, file_size, fetched_at, abs_description, abs_metadata, abs_metadata_fetched_at)
+                    VALUES (:mam_id, :title, :author, :cover_url, :item_id, :local_file, :file_size, :fetched_at, :description, :metadata, :metadata_fetched_at)
                     ON CONFLICT(mam_id) DO UPDATE SET
                         cover_url = :cover_url,
                         abs_item_id = :item_id,
@@ -246,7 +282,10 @@ class CoverService:
                         author = :author,
                         local_file = :local_file,
                         file_size = :file_size,
-                        fetched_at = :fetched_at
+                        fetched_at = :fetched_at,
+                        abs_description = :description,
+                        abs_metadata = :metadata,
+                        abs_metadata_fetched_at = :metadata_fetched_at
                 """), {
                     "mam_id": mam_id,
                     "title": title,
@@ -255,7 +294,10 @@ class CoverService:
                     "item_id": item_id,
                     "local_file": local_file,
                     "file_size": file_size,
-                    "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                    "description": description if description else None,
+                    "metadata": metadata_json_str,
+                    "metadata_fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if metadata_json else None
                 })
 
                 logger.info(f"✅ Cached cover for MAM ID {mam_id}: {final_cover_url}")
