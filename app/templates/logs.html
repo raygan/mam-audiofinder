@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - Audiobook Finder{% endblock %}
+{% block nav_logs %}active{% endblock %}
+{% block page_script %}/static/pages/logs.js?v=5{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="logs-header">
+      <h3>Application Logs</h3>
+      <div class="logs-controls">
+        <select id="logLevel">
+          <option value="">All Levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <select id="logLines">
+          <option value="50">50 lines</option>
+          <option value="100" selected>100 lines</option>
+          <option value="250">250 lines</option>
+          <option value="500">500 lines</option>
+          <option value="1000">1000 lines</option>
+        </select>
+        <button id="refreshLogsBtn" class="primary">🔄 Refresh</button>
+        <label>
+          <input type="checkbox" id="autoScrollLogs" checked> Auto-scroll
+        </label>
+      </div>
+    </div>
+    <div id="logsContainer" class="logs-container">
+      <pre id="logsContent">Loading logs...</pre>
+    </div>
+  </div>
+{% endblock %}

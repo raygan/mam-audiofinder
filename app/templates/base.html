@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Audiobook Finder{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+  <link rel="apple-touch-icon" href="/static/favicon-180.png">
+  <meta name="theme-color" content="#8b2635">
+  <link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+  <nav class="task-bar">
+    <a href="/" class="nav-btn {% block nav_search %}{% endblock %}" title="Search for audiobooks">
+      🔍 Search
+    </a>
+    <a href="/history" class="nav-btn {% block nav_history %}{% endblock %}" title="View download history and imports">
+      📋 History
+    </a>
+    <a href="/showcase" class="nav-btn {% block nav_showcase %}{% endblock %}" title="Browse audiobooks in grid view">
+      🎭 Showcase
+    </a>
+    <a href="/logs" class="nav-btn {% block nav_logs %}{% endblock %}" title="View application logs">
+      📄 Logs
+    </a>
+    <div class="task-bar-spacer"></div>
+    <span id="navHealth" class="health-indicator" title="Application health status">
+      <span class="health-dot"></span>
+      <span class="health-text">Checking...</span>
+    </span>
+  </nav>
+
+  <header>
+    <h1>📚 Audiobook Finder</h1>
+    <span class="muted">Download Audiobooks and Import to Audiobookshelf</span>
+  </header>
+
+  {% block content %}
+  <!-- Page-specific content goes here -->
+  {% endblock %}
+
+  <script type="module" src="{% block page_script %}/static/app.js?v=5{% endblock %}"></script>
+</body>
+</html>

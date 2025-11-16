@@ -1,6 +1,7 @@
 /**
  * Router and URL state management for MAM Audiobook Finder
- * Handles URL query parameters, browser history, and view navigation
+ * Handles URL query parameters, browser history, and page navigation
+ * Updated for multi-page architecture
  */
 
 /**
@@ -8,30 +9,24 @@
  */
 export class Router {
   constructor() {
-    this.currentView = 'search';
-    this.views = {
-      search: { card: null, navBtn: 'navSearch' },
-      history: { card: 'historyCard', navBtn: 'navHistory' },
-      showcase: { card: 'showcaseCard', navBtn: 'navShowcase' },
-      logs: { card: 'logsCard', navBtn: 'navLogs' }
-    };
-
     // Bind popstate handler
     window.addEventListener('popstate', (e) => this.handlePopState(e));
   }
 
   /**
    * Extract state from URL query parameters
-   * @returns {{q: string, sort: string, perpage: string, view: string}}
+   * @returns {Object} State object with all URL parameters
    */
   getStateFromURL() {
     const params = new URLSearchParams(window.location.search);
-    return {
-      q: params.get('q') || '',
-      sort: params.get('sort') || 'default',
-      perpage: params.get('perpage') || '25',
-      view: params.get('view') || ''
-    };
+    const state = {};
+
+    // Convert all URL params to state object
+    for (const [key, value] of params.entries()) {
+      state[key] = value;
+    }
+
+    return state;
   }
 
   /**
@@ -42,10 +37,12 @@ export class Router {
   updateURL(state, replace = false) {
     const params = new URLSearchParams();
 
-    if (state.q) params.set('q', state.q);
-    if (state.sort && state.sort !== 'default') params.set('sort', state.sort);
-    if (state.perpage && state.perpage !== '25') params.set('perpage', state.perpage);
-    if (state.view) params.set('view', state.view);
+    // Add all non-empty state values to URL params
+    Object.entries(state).forEach(([key, value]) => {
+      if (value && value !== '' && value !== 'default' && value !== '25') {
+        params.set(key, value);
+      }
+    });
 
     const newURL = params.toString()
       ? `${window.location.pathname}?${params.toString()}`
@@ -61,25 +58,19 @@ export class Router {
   /**
    * Get current state from UI elements
    * @param {Object} elements - DOM elements containing state
-   * @returns {{q: string, sort: string, perpage: string, view: string}}
+   * @returns {Object} Current state from form inputs
    */
   getCurrentState(elements) {
-    // Determine current view based on visible cards
-    let currentView = '';
-    if (document.getElementById('historyCard')?.style.display === '') {
-      currentView = 'history';
-    } else if (document.getElementById('showcaseCard')?.style.display === '') {
-      currentView = 'showcase';
-    } else if (document.getElementById('logsCard')?.style.display === '') {
-      currentView = 'logs';
-    }
+    const state = {};
 
-    return {
-      q: (elements.q?.value || '').trim(),
-      sort: (elements.sort?.value) || 'default',
-      perpage: (elements.perpage?.value) || '25',
-      view: currentView
-    };
+    // Collect state from any provided elements
+    if (elements.q) state.q = elements.q.value?.trim() || '';
+    if (elements.sort) state.sort = elements.sort.value || 'default';
+    if (elements.perpage) state.perpage = elements.perpage.value || '25';
+    if (elements.showcaseSearch) state.q = elements.showcaseSearch.value?.trim() || '';
+    if (elements.showcaseLimit) state.limit = elements.showcaseLimit.value || '100';
+
+    return state;
   }
 
   /**
@@ -93,55 +84,33 @@ export class Router {
   }
 
   /**
-   * Navigate to a specific view
-   * @param {string} viewName - Name of view to show (search, history, showcase, logs)
+   * Navigate to a specific page with optional parameters
+   * @param {string} path - Path to navigate to (e.g., '/history', '/showcase')
+   * @param {Object} params - Optional query parameters
    */
-  navigateTo(viewName) {
-    this.currentView = viewName;
-    this.showView(viewName);
+  navigateTo(path, params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const url = queryString ? `${path}?${queryString}` : path;
+    window.location.href = url;
   }
 
   /**
-   * Show a specific view and hide others
-   * @param {string} viewName - Name of view to show
+   * Build URL with parameters for navigation
+   * @param {string} path - Base path
+   * @param {Object} params - Query parameters
+   * @returns {string} Complete URL with query string
    */
-  showView(viewName) {
-    // Only emit event if view is actually changing
-    const viewChanged = this.currentView !== viewName;
-    this.currentView = viewName;
+  buildURL(path, params = {}) {
+    const filteredParams = {};
 
-    // Update active nav button
-    Object.values(this.views).forEach(view => {
-      const btn = document.getElementById(view.navBtn);
-      if (btn) btn.classList.remove('active');
-    });
-
-    const activeBtn = document.getElementById(this.views[viewName]?.navBtn);
-    if (activeBtn) activeBtn.classList.add('active');
-
-    // Show/hide cards
-    Object.entries(this.views).forEach(([name, view]) => {
-      if (view.card) {
-        const card = document.getElementById(view.card);
-        if (card) {
-          card.style.display = (name === viewName) ? '' : 'none';
-        }
+    // Filter out empty/default values
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== '' && value !== 'default' && value !== '25') {
+        filteredParams[key] = value;
       }
     });
 
-    // Scroll to appropriate section
-    if (viewName !== 'search') {
-      const card = document.getElementById(this.views[viewName]?.card);
-      if (card) {
-        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    // Dispatch custom event for view lifecycle management
-    window.dispatchEvent(new CustomEvent('routerViewChange', {
-      detail: { view: viewName }
-    }));
+    const queryString = new URLSearchParams(filteredParams).toString();
+    return queryString ? `${path}?${queryString}` : path;
   }
 }

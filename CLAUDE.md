@@ -22,9 +22,9 @@
 
 ### Frontend
 - **Vanilla JavaScript** with ES6 modules (no frameworks)
-- **HTML5** with minimal CSS
-- **Single-page application** pattern
-- **Modular architecture** - Organized into core, services, views, and components
+- **HTML5** with minimal CSS and **Jinja2 templates**
+- **Multi-page application** pattern (separate pages for search, history, showcase, logs)
+- **Modular architecture** - Organized into core, services, views, components, and pages
 
 ### Infrastructure
 - **Docker** (containerization)
@@ -61,7 +61,7 @@ mam-audiofinder/
 │   │   ├── covers_route.py    # Cover serving endpoint
 │   │   └── logs_route.py      # Logs viewing endpoint
 │   ├── static/
-│   │   ├── app.js             # Frontend entry point (ES6 modules)
+│   │   ├── app.js             # Legacy single-page entry point (deprecated)
 │   │   ├── js/                # Modular JavaScript architecture
 │   │   │   ├── core/          # Core infrastructure
 │   │   │   │   ├── api.js     # API client
@@ -76,11 +76,21 @@ mam-audiofinder/
 │   │   │   │   └── logsView.js     # Logs viewer
 │   │   │   └── components/    # Reusable components
 │   │   │       └── importForm.js   # Import workflow
+│   │   ├── pages/             # Page-specific entry scripts
+│   │   │   ├── search.js      # Search page entry point
+│   │   │   ├── history.js     # History page entry point
+│   │   │   ├── showcase.js    # Showcase page entry point
+│   │   │   └── logs.js        # Logs page entry point
 │   │   ├── css/               # Stylesheets (dark theme)
 │   │   ├── favicon*.png       # Icons
 │   │   └── screenshots/       # README images
 │   └── templates/
-│       └── index.html         # Single-page UI
+│       ├── base.html          # Base template with shared layout
+│       ├── search.html        # Search page template
+│       ├── history.html       # History page template
+│       ├── showcase.html      # Showcase page template
+│       ├── logs.html          # Logs page template
+│       └── index.html         # Legacy single-page template (deprecated)
 ├── validate_env.py            # Startup validation script
 ├── Dockerfile                 # Container image definition
 ├── docker-compose.yml         # Service orchestration
@@ -93,7 +103,10 @@ mam-audiofinder/
 ## Architecture & Data Flow
 
 ### Request Flow
-1. **User Interface** (index.html + app.js) → Frontend
+1. **User Interface** (Jinja2 templates + page-specific scripts) → Frontend
+   - Base template (base.html) provides shared layout (nav, health check)
+   - Page templates (search.html, history.html, showcase.html, logs.html) extend base
+   - Page scripts (pages/*.js) initialize views and handle page-specific logic
 2. **FastAPI Endpoints** (routes/) → Backend API
 3. **External Services:**
    - MAM API (search, torrent download)
@@ -246,15 +259,25 @@ History View → GET /history → Fetch Live States (torrent_helpers) → Match 
 
 ## API Endpoints
 
+### Page Routes (HTML)
+
 | Route | Method | Purpose | Module |
 |-------|--------|---------|--------|
-| `/` | GET | Serve UI | routes/basic.py |
+| `/` | GET | Serve search page | routes/basic.py |
+| `/history` | GET | Serve history page | routes/basic.py |
+| `/showcase` | GET | Serve showcase page | routes/basic.py |
+| `/logs` | GET | Serve logs page | routes/basic.py |
+
+### API Routes (JSON)
+
+| Route | Method | Purpose | Module |
+|-------|--------|---------|--------|
 | `/health` | GET | Health check | routes/basic.py |
 | `/config` | GET | Return config | routes/basic.py |
 | `/search` | POST | Search MAM | routes/search.py |
 | `/add` | POST | Add to qBittorrent | routes/qbittorrent.py |
-| `/history` | GET | Fetch history | routes/history.py |
-| `/history/{id}` | DELETE | Remove history item | routes/history.py |
+| `/api/history` | GET | Fetch history data | routes/history.py |
+| `/api/history/{id}` | DELETE | Remove history item | routes/history.py |
 | `/qb/torrents` | GET | List completed torrents | routes/qbittorrent.py |
 | `/qb/torrent/{hash}/tree` | GET | Get torrent file tree with multi-disc detection | routes/qbittorrent.py |
 | `/import` | POST | Import to library | routes/import_route.py |
@@ -363,23 +386,58 @@ Import form now includes:
 4. Store metadata in covers database
 5. Return local URL (`/covers/{filename}`) or remote URL
 
-### Frontend Architecture - Modular JavaScript (ES6)
+### Frontend Architecture - Multi-Page with Modular JavaScript (ES6)
 
-**Overview:** The frontend has been refactored from a monolithic 1,448-line `app.js` into a clean modular architecture totaling ~2,400 lines across focused modules.
+**Overview:** The frontend uses a **multi-page architecture** with Jinja2 templates and modular ES6 JavaScript. Each page (search, history, showcase, logs) is a separate HTML file with its own entry script, while sharing common views, services, and components.
 
-#### `/app/static/app.js` (~240 lines)
+#### `/app/templates/` - Jinja2 Templates
 
-**Main Application Entry Point:**
-- `App` class that orchestrates all view modules
-- DOM element collection and initialization
-- View instantiation with dependency injection
-- Navigation handler setup (search, history, showcase, logs)
-- Router event handling for browser back/forward
-- Health check integration with visual indicator
-- URL state restoration on page load
-- Uses ES6 `type="module"` for native browser module loading
+**`base.html`:**
+- Base template extended by all pages
+- Shared navigation bar with links to each page
+- Health status indicator
+- Header with app title
+- Blocks for page-specific content and scripts
+- Easy to extend with new pages
 
-#### `/app/static/js/core/` - Core Infrastructure (~371 lines)
+**Page Templates:**
+- `search.html` - Search form and results table
+- `history.html` - Download history and import table
+- `showcase.html` - Audiobook grid with search controls
+- `logs.html` - Application logs viewer
+- Each template extends `base.html` and fills content blocks
+
+#### `/app/static/pages/` - Page Entry Scripts
+
+**`search.js` (~150 lines):**
+- Search page initialization
+- Creates SearchView instance
+- Handles URL parameter restoration (q, sort, perpage)
+- Auto-executes search if query parameter present
+- Health check integration
+- Browser back/forward navigation support
+
+**`history.js` (~100 lines):**
+- History page initialization
+- Creates HistoryView instance
+- Loads history data on page load
+- Health check integration
+
+**`showcase.js` (~150 lines):**
+- Showcase page initialization
+- Creates ShowcaseView instance with router
+- URL parameter support (q, limit) for shareable showcase searches
+- Handles URL parameter restoration
+- Browser back/forward navigation support
+- Health check integration
+
+**`logs.js` (~100 lines):**
+- Logs page initialization
+- Creates LogsView instance
+- Loads logs data on page load
+- Health check integration
+
+#### `/app/static/js/core/` - Core Infrastructure (~315 lines)
 
 **`api.js` (~180 lines):**
 - Centralized API client for all backend endpoints
@@ -388,15 +446,16 @@ Import form now includes:
 - Consistent error handling with detailed messages
 - JSDoc documentation for all methods
 
-**`router.js` (~130 lines):**
+**`router.js` (~115 lines):**
 - Router class for URL state and navigation management
+- Simplified for multi-page architecture
 - `getStateFromURL()` - Parse URL query parameters
 - `updateURL()` - Update browser history with new state
 - `getCurrentState()` - Extract current UI state
 - `handlePopState()` - Browser back/forward navigation
-- `navigateTo()` - Programmatic view switching
-- `showView()` - Show/hide view cards with smooth scrolling
-- Custom events: `routerStateChange`, `routerViewChange`
+- `navigateTo()` - Page navigation with window.location
+- `buildURL()` - Build URLs with query parameters
+- Custom event: `routerStateChange` for back/forward navigation
 
 **`utils.js` (~30 lines):**
 - `escapeHtml()` - XSS protection for user input
@@ -432,13 +491,14 @@ Import form now includes:
 - Listens for `torrentAdded` and `importCompleted` events
 - Updates status display after import
 
-**`showcaseView.js` (~330 lines):**
+**`showcaseView.js` (~405 lines):**
 - Grid view with lazy-loaded covers
 - Detail view with versions table
-- Search and filtering controls
+- Search and filtering controls with URL parameter support
 - Add to qBittorrent from showcase
 - Cover loading for both grid and detail views
 - Click handlers for card expansion
+- Router integration for shareable URLs
 
 **`logsView.js` (~80 lines):**
 - Log fetching with level filtering (INFO, WARNING, ERROR)
@@ -462,17 +522,25 @@ Import form now includes:
 
 #### Key Architecture Patterns
 
+**Multi-Page Architecture:**
+- Each page is a separate route (/, /history, /showcase, /logs)
+- Navigation uses standard HTML links (no client-side routing)
+- Each page loads only the JavaScript it needs
+- Shared layout via Jinja2 template inheritance
+- Easy to extend with new pages (add template, entry script, route)
+
 **Event-Driven Communication:**
 - Views don't directly call each other
-- Custom events: `torrentAdded`, `importCompleted`, `routerStateChange`, `routerViewChange`
+- Custom events: `torrentAdded`, `importCompleted`, `routerStateChange`
 - Loose coupling between modules
 
 **Dependency Injection:**
 - Views receive DOM element references via constructor
 - Router passed to views that need navigation
-- No global state (except `window.app`)
+- Page-specific initialization in entry scripts
 
 **Module Organization:**
+- **Pages:** Page-specific entry points and initialization
 - **Core:** Infrastructure (API, routing, utilities)
 - **Services:** Shared functionality (cover loading)
 - **Views:** Feature-specific logic (search, history, showcase, logs)
@@ -483,6 +551,14 @@ Import form now includes:
 - `import`/`export` syntax throughout
 - Loaded via `<script type="module">`
 - Better browser caching (each module cached separately)
+
+**Expandability:**
+- Adding a new page requires:
+  1. Create template in `templates/` extending `base.html`
+  2. Create entry script in `static/pages/`
+  3. Add route in `routes/basic.py`
+  4. Add link to `base.html` navigation
+- All existing modules (views, components, services) are reusable
 
 ### `/validate_env.py` (60 lines)
 
@@ -830,7 +906,22 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Frontend Modular Refactor** (2025-11-16)
+1. **Multi-Page Architecture Refactor** (2025-11-16)
+   - Converted from single-page application to multi-page architecture
+   - Separate pages for Search (/), History (/history), Showcase (/showcase), and Logs (/logs)
+   - **Jinja2 template inheritance** with base.html providing shared layout
+   - **Page-specific entry scripts** in static/pages/ (search.js, history.js, showcase.js, logs.js)
+   - Navigation via standard HTML links instead of JavaScript show/hide
+   - Each page loads only the JavaScript modules it needs
+   - **Showcase URL parameters** - Share showcase searches via URL (?q=tolkien&limit=100)
+   - Router simplified for URL parameter management only
+   - ShowcaseView updated to accept router and update URL on search
+   - **Easy expandability** - Add new pages by creating template, entry script, route, and nav link
+   - All existing view modules remain unchanged and reusable
+   - Better separation of concerns and improved maintainability
+   - Preserves all functionality: search, add to qBittorrent, history, import, logs
+
+2. **Frontend Modular Refactor** (2025-11-16)
    - Refactored 1,448-line monolithic `app.js` into modular ES6 architecture
    - Created 9 focused modules totaling ~2,400 well-structured lines
    - **Core modules** (371 lines): api.js, router.js, utils.js

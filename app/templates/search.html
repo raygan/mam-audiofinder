@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Search - Audiobook Finder{% endblock %}
+{% block nav_search %}active{% endblock %}
+{% block page_script %}/static/pages/search.js?v=5{% endblock %}
+
+{% block content %}
+  <form id="searchForm" class="row">
+    <input id="q" type="text" placeholder="Search title/author/narrator" />
+    <select id="sort">
+      <option value="default">Sort: Default</option>
+      <option value="seedersDesc">Seeders ↓</option>
+      <option value="dateDesc">Date Added ↓</option>
+      <option value="sizeDesc">Size ↓</option>
+    </select>
+    <select id="perpage">
+      <option>25</option>
+      <option>50</option>
+      <option>100</option>
+    </select>
+    <button id="searchBtn" type="submit">Search</button>
+  </form>
+
+  <div id="status" class="muted"></div>
+
+  <table id="results" style="display:none">
+    <thead>
+      <tr>
+        <th style="width: 80px">Cover</th>
+        <th>Title</th>
+        <th>Author</th>
+        <th>Narrator</th>
+        <th>Filetype</th>
+        <th class="right">Size</th>
+        <th class="right">Seeders</th>
+        <th>Uploaded</th>
+        <th class="center">Link</th>
+        <th>Add</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+{% endblock %}
