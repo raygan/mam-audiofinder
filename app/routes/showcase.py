@@ -28,6 +28,9 @@ def normalize_title(title: str) -> str:
     if not title:
         return ""
 
+    # Ensure title is a string (MAM API might return integers)
+    title = str(title)
+
     # Remove common articles at the start
     s = re.sub(r'^(The|A|An)\s+', '', title, flags=re.IGNORECASE)
 
@@ -161,7 +164,8 @@ async def showcase(
     groups_dict: Dict[str, List[dict]] = defaultdict(list)
 
     for item in raw.get("data", []):
-        title = item.get("title") or item.get("name") or "Unknown"
+        # Convert to string to handle cases where MAM returns integers
+        title = str(item.get("title") or item.get("name") or "Unknown")
         normalized = normalize_title(title)
 
         # Skip empty titles
