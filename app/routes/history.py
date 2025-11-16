@@ -170,3 +170,109 @@ def delete_history(row_id: int):
     with engine.begin() as cx:
         cx.execute(text("DELETE FROM history WHERE id = :id"), {"id": row_id})
     return {"ok": True}
+
+
+@router.post("/api/history/{row_id}/verify")
+async def verify_history_item(row_id: int):
+    """Manually trigger verification for a history item."""
+    import logging
+    from pathlib import Path
+    import json
+    from config import LIB_DIR
+
+    logger = logging.getLogger("mam-audiofinder")
+    logger.info(f"[VERIFY] Manual verification requested for history ID {row_id}")
+
+    # Get history item details
+    with engine.begin() as cx:
+        row = cx.execute(
+            text("SELECT id, title, author, imported_at FROM history WHERE id = :id"),
+            {"id": row_id}
+        ).mappings().first()
+
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="History item not found")
+
+    if not row["imported_at"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Item not yet imported")
+
+    title = row["title"] or ""
+    author = row["author"] or ""
+
+    # Try to find the imported directory
+    from utils import sanitize
+    title_san = sanitize(title)
+    author_san = sanitize(author)
+
+    # Construct likely path
+    lib = Path(LIB_DIR)
+    potential_paths = [
+        lib / author_san / title_san,
+        lib / author / title,  # Try unsanitized as fallback
+    ]
+
+    dest_dir = None
+    for path in potential_paths:
+        if path.exists():
+            dest_dir = path
+            logger.info(f"📂 Found import directory: {dest_dir}")
+            break
+
+    if not dest_dir:
+        logger.warning(f"⚠️  Could not find import directory for '{title}'")
+        return {
+            "ok": False,
+            "status": "not_found",
+            "note": "Import directory not found - may have been moved or deleted"
+        }
+
+    # Read metadata.json
+    metadata_path = dest_dir / "metadata.json"
+    metadata = {}
+    if metadata_path.exists():
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            logger.info(f"📖 Read metadata.json for verification")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to read metadata.json: {e}")
+
+    # Perform verification
+    from abs_client import abs_client
+
+    verify_title = metadata.get("title", title) if metadata else title
+    verify_authors = metadata.get("authors", [author]) if metadata else [author]
+    verify_author = ", ".join(verify_authors) if verify_authors else author
+
+    logger.info(f"🔍 Re-verifying '{verify_title}' by '{verify_author}'")
+
+    verification_result = await abs_client.verify_import(
+        title=verify_title,
+        author=verify_author,
+        library_path=str(dest_dir),
+        metadata=metadata
+    )
+
+    # Update database with new verification results
+    with engine.begin() as cx:
+        cx.execute(
+            text("""
+                UPDATE history
+                SET abs_verify_status=:status, abs_verify_note=:note
+                WHERE id=:id
+            """),
+            {
+                "status": verification_result.get("status"),
+                "note": verification_result.get("note"),
+                "id": row_id
+            }
+        )
+
+    logger.info(f"✅ Verification updated: {verification_result.get('status')}")
+
+    return {
+        "ok": True,
+        "verification": verification_result
+    }

@@ -301,8 +301,22 @@ async def do_import(body: ImportBody):
                 {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
             )
 
-    # --- Read metadata.json if available ---
-    metadata = read_metadata_json(dest_dir)
+    # --- Read metadata.json if available (with retry for ABS scan) ---
+    # Wait for Audiobookshelf to scan the imported files and create metadata.json
+    import asyncio
+    metadata = {}
+    max_wait_attempts = 6  # 6 attempts = ~30 seconds total
+    for attempt in range(1, max_wait_attempts + 1):
+        metadata = read_metadata_json(dest_dir)
+        if metadata:
+            logger.info(f"📖 Found metadata.json on attempt {attempt}")
+            break
+        elif attempt < max_wait_attempts:
+            wait_time = 5  # Wait 5 seconds between checks
+            logger.info(f"⏳ Waiting {wait_time}s for metadata.json (attempt {attempt}/{max_wait_attempts})")
+            await asyncio.sleep(wait_time)
+        else:
+            logger.info(f"ℹ️  No metadata.json found after {max_wait_attempts} attempts, proceeding with torrent metadata")
 
     # --- Verify import in Audiobookshelf ---
     # Don't fail the import if verification fails, just log it
