@@ -92,6 +92,11 @@ All backend, frontend, Python syntax validation, and documentation tasks are com
 Remaining:  
 - [x] Manual testing (run-time verification)
 
+## 9 Fix Showcase errors
+- [ ] Debug and resolve why covers do not load in like in search feild require multiple refreshes to trigger feeding from cache this suggests retry or batch logic is flawed here
+- [ ] the '# versions' text is behind the cover
+- [ ] hitting back after clicking on a book send you to the search page with the query posed fix
+- [ ] add in book title urls when clicking on a book in showcase view
 ---
 # MAM Audiobook Finder - Refined Todo List
 
@@ -140,13 +145,13 @@ Remaining:
 *Show which search results already exist in your Audiobookshelf library*
 
 ### Search Enhancement Backend
-- [ ] **Extend search endpoint** in `app/routes/search.py`:
+- [x] **Extend search endpoint** in `app/routes/search.py`:
   - After MAM search results return, create list of title/author pairs
   - Use existing abs verification logic used in history spinning it off as a helper if not already present.
   - Add `in_abs_library` boolean field to each search result
   - Cache library check results in memory for 5 minutes to reduce ABS API calls
 
-### Frontend Library Indicators
+### Frontend Library Indicators -partially complete debug on library view needed
 - [ ] **Update search view** in `app/static/js/views/searchView.js`:
   - Create a helper which implements the following items modularly:
   - Modify search result rendering to check for `in_abs_library` flag
@@ -156,10 +161,10 @@ Remaining:
   - Add hover tooltip "Already in your library"
 
 ### Update Showcase View     
-  - [ ] **Update showcase view** repurpose library_indicator helper to show if any title matches in a group for showcase. 
+  - [x] **Update showcase view** repurpose library_indicator helper to show if any title matches in a group for showcase. 
 
 ### Configuration
-- [ ] **Add library visibility settings** to `app/config.py`:
+- [x] **Add library visibility settings** to `app/config.py`:
   - Add `ABS_CHECK_LIBRARY` boolean env variable (default False) to enable/disable feature
   - Add `ABS_LIBRARY_CACHE_TTL` integer (default 300 seconds) for cache duration
   - Update env.example with new variables and descriptions
