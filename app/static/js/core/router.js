@@ -99,11 +99,6 @@ export class Router {
   navigateTo(viewName) {
     this.currentView = viewName;
     this.showView(viewName);
-
-    // Dispatch custom event
-    window.dispatchEvent(new CustomEvent('routerViewChange', {
-      detail: { view: viewName }
-    }));
   }
 
   /**
@@ -111,6 +106,10 @@ export class Router {
    * @param {string} viewName - Name of view to show
    */
   showView(viewName) {
+    // Only emit event if view is actually changing
+    const viewChanged = this.currentView !== viewName;
+    this.currentView = viewName;
+
     // Update active nav button
     Object.values(this.views).forEach(view => {
       const btn = document.getElementById(view.navBtn);
@@ -139,5 +138,10 @@ export class Router {
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+
+    // Dispatch custom event for view lifecycle management
+    window.dispatchEvent(new CustomEvent('routerViewChange', {
+      detail: { view: viewName }
+    }));
   }
 }
