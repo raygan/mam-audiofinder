@@ -743,6 +743,51 @@ a:hover {
   font-weight: 600;
 }
 
+/* Description Styles */
+.showcase-description-container {
+  margin-top: var(--spacing-sm);
+}
+
+.showcase-description {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: var(--spacing-xs) 0;
+  overflow: hidden;
+}
+
+.showcase-description.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.description-toggle {
+  background: none;
+  border: none;
+  color: var(--accent-maroon-light);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: var(--spacing-xs) 0;
+  margin: var(--spacing-xs) 0;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+
+.description-toggle:hover {
+  color: var(--text-primary);
+}
+
+.description-source {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--text-subtle);
+  opacity: 0.7;
+  margin-top: var(--spacing-xs);
+}
+
 .showcase-versions-badge {
   position: absolute;
   top: var(--spacing-sm);

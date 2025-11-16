@@ -206,6 +206,7 @@ export class ShowcaseView {
   /**
    * Load cover for showcase card
    * Backend handles all retries with exponential backoff and jitter
+   * Also handles description fetching and display
    * @param {HTMLElement} skeletonEl - Skeleton element to replace
    * @param {string} mamId - MAM torrent ID
    * @param {string} title - Book title
@@ -262,6 +263,11 @@ export class ShowcaseView {
 
           skeletonEl.replaceWith(placeholder);
         };
+
+        // Handle description if available
+        if (data.description) {
+          this.addDescriptionToCard(skeletonEl.parentElement, data.description);
+        }
       } else {
         const placeholder = document.createElement('div');
         placeholder.className = 'showcase-cover-placeholder';
@@ -288,6 +294,74 @@ export class ShowcaseView {
       }
 
       skeletonEl.replaceWith(placeholder);
+    }
+  }
+
+  /**
+   * Add description to a showcase card
+   * @param {HTMLElement} card - The card element
+   * @param {string} description - The description text
+   */
+  addDescriptionToCard(card, description) {
+    if (!card || !description) return;
+
+    // Check if description already exists
+    let descContainer = card.querySelector('.showcase-description-container');
+    if (descContainer) return; // Already has description
+
+    // Create description container
+    descContainer = document.createElement('div');
+    descContainer.className = 'showcase-description-container';
+
+    // Description text
+    const descText = document.createElement('div');
+    descText.className = 'showcase-description collapsed';
+    descText.textContent = description;
+
+    // Toggle button (only show if description is long enough)
+    const shouldShowToggle = description.length > 200;
+    let toggleBtn = null;
+
+    if (shouldShowToggle) {
+      toggleBtn = document.createElement('button');
+      toggleBtn.className = 'description-toggle';
+      toggleBtn.textContent = 'Show more';
+
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Don't trigger card click
+        const isCollapsed = descText.classList.contains('collapsed');
+
+        if (isCollapsed) {
+          descText.classList.remove('collapsed');
+          toggleBtn.textContent = 'Show less';
+        } else {
+          descText.classList.add('collapsed');
+          toggleBtn.textContent = 'Show more';
+        }
+      });
+    } else {
+      // Short description, don't collapse
+      descText.classList.remove('collapsed');
+    }
+
+    // Source attribution
+    const sourceAttr = document.createElement('div');
+    sourceAttr.className = 'description-source';
+    sourceAttr.textContent = 'via Audiobookshelf';
+
+    // Assemble
+    descContainer.appendChild(descText);
+    if (toggleBtn) {
+      descContainer.appendChild(toggleBtn);
+    }
+    descContainer.appendChild(sourceAttr);
+
+    // Insert after formats or at end
+    const formatsDiv = card.querySelector('.showcase-formats');
+    if (formatsDiv && formatsDiv.nextSibling) {
+      card.insertBefore(descContainer, formatsDiv.nextSibling);
+    } else {
+      card.appendChild(descContainer);
     }
   }
 
