@@ -93,11 +93,11 @@ Remaining:
 - [x] Manual testing (run-time verification)
 
 ## 9 Fix Showcase errors
-- [ ] Debug and resolve why covers do not load in like in search feild require multiple refreshes to trigger feeding from cache this suggests retry or batch logic is flawed here
-- [ ] the '# versions' text is behind the cover
-- [ ] hitting back after clicking on a book send you to the search page with the query posed fix
-- [ ] add in book title urls when clicking on a book in showcase view
-- [ ] prevent showcase from sending an empty query to mam when first clicked
+- [x] Debug and resolve why covers do not load in like in search feild require multiple refreshes to trigger feeding from cache this suggests retry or batch logic is flawed here
+- [x] the '# versions' text is behind the cover
+- [x] hitting back after clicking on a book send you to the search page with the query posed fix
+- [x] add in book title urls when clicking on a book in showcase view
+- [x] prevent showcase from sending an empty query to mam when first clicked
 ---
 # MAM Audiobook Finder - Refined Todo List
 

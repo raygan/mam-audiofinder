@@ -13,6 +13,8 @@ export class ShowcaseView {
   constructor(elements, router) {
     this.elements = elements;
     this.router = router;
+    this.currentGroups = []; // Store loaded groups for detail view restoration
+    this.currentDetailGroup = null;
     this.bindEvents();
   }
 
@@ -41,6 +43,21 @@ export class ShowcaseView {
   }
 
   /**
+   * Show empty state message when no search has been performed
+   */
+  showEmptyState() {
+    const showcaseStatus = this.elements.status;
+    const showcaseGrid = this.elements.grid;
+    const showcaseDetail = this.elements.detail;
+
+    if (!showcaseGrid || !showcaseStatus) return;
+
+    showcaseStatus.textContent = 'Enter a search query to find audiobooks';
+    showcaseGrid.innerHTML = '';
+    if (showcaseDetail) showcaseDetail.style.display = 'none';
+  }
+
+  /**
    * Load and display showcase audiobooks
    * @param {string} query - Optional search query
    */
@@ -55,6 +72,12 @@ export class ShowcaseView {
       // Get search query from input if not provided
       const searchQuery = query || this.elements.searchInput?.value?.trim() || '';
       const limit = parseInt(this.elements.limitSelect?.value || '100', 10);
+
+      // Don't search if query is empty - show empty state instead
+      if (!searchQuery) {
+        this.showEmptyState();
+        return;
+      }
 
       showcaseStatus.textContent = 'Loading audiobooks...';
       showcaseGrid.innerHTML = '';
@@ -73,6 +96,10 @@ export class ShowcaseView {
       }
 
       showcaseStatus.textContent = `Showing ${data.total_groups} titles (${data.total_results} versions)`;
+
+      // Store groups for detail view restoration
+      this.currentGroups = data.groups;
+
       this.renderGrid(data.groups);
 
       // Update URL with search parameters (if router is available)
@@ -177,46 +204,70 @@ export class ShowcaseView {
   }
 
   /**
-   * Load cover for showcase card
+   * Load cover for showcase card with retry, backoff, and jitter
    * @param {HTMLElement} skeletonEl - Skeleton element to replace
    * @param {string} mamId - MAM torrent ID
    * @param {string} title - Book title
    * @param {string} author - Author name
    */
   async loadShowcaseCover(skeletonEl, mamId, title, author) {
-    try {
-      // Preserve library indicator if it exists
-      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
+    // Add random initial jitter to spread out concurrent requests (0-500ms)
+    const initialJitter = Math.random() * 500;
+    await new Promise(resolve => setTimeout(resolve, initialJitter));
 
-      const data = await api.fetchCover({
-        mam_id: mamId,
-        title: title || '',
-        author: author || '',
-        max_retries: '2'
-      });
+    const maxRetries = 3;
+    let attempt = 0;
 
-      if (data.cover_url) {
-        const img = document.createElement('img');
-        img.className = 'showcase-cover';
-        img.src = data.cover_url;
-        img.alt = title || 'Cover';
-        img.loading = 'lazy';
+    while (attempt <= maxRetries) {
+      try {
+        // Preserve library indicator if it exists
+        const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
 
-        img.onload = () => {
-          // Create wrapper to maintain relative positioning for indicator
-          const wrapper = document.createElement('div');
-          wrapper.style.position = 'relative';
-          wrapper.appendChild(img);
+        const data = await api.fetchCover({
+          mam_id: mamId,
+          title: title || '',
+          author: author || '',
+          max_retries: '3'
+        });
 
-          // Re-add library indicator if it existed
-          if (libraryIndicator) {
-            wrapper.appendChild(libraryIndicator);
-          }
+        if (data.cover_url) {
+          const img = document.createElement('img');
+          img.className = 'showcase-cover';
+          img.src = data.cover_url;
+          img.alt = title || 'Cover';
+          img.loading = 'lazy';
 
-          skeletonEl.replaceWith(wrapper);
-        };
+          img.onload = () => {
+            // Create wrapper to maintain relative positioning for indicator
+            const wrapper = document.createElement('div');
+            wrapper.style.position = 'relative';
+            wrapper.appendChild(img);
 
-        img.onerror = () => {
+            // Re-add library indicator if it existed
+            if (libraryIndicator) {
+              wrapper.appendChild(libraryIndicator);
+            }
+
+            skeletonEl.replaceWith(wrapper);
+          };
+
+          img.onerror = () => {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'showcase-cover-placeholder';
+            placeholder.textContent = '📚';
+
+            // Re-add library indicator if it existed
+            if (libraryIndicator) {
+              placeholder.style.position = 'relative';
+              placeholder.appendChild(libraryIndicator);
+            }
+
+            skeletonEl.replaceWith(placeholder);
+          };
+
+          // Success - exit retry loop
+          return;
+        } else {
           const placeholder = document.createElement('div');
           placeholder.className = 'showcase-cover-placeholder';
           placeholder.textContent = '📚';
@@ -228,45 +279,86 @@ export class ShowcaseView {
           }
 
           skeletonEl.replaceWith(placeholder);
-        };
-      } else {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'showcase-cover-placeholder';
-        placeholder.textContent = '📚';
+          return;
+        }
+      } catch (error) {
+        attempt++;
 
-        // Re-add library indicator if it existed
-        if (libraryIndicator) {
-          placeholder.style.position = 'relative';
-          placeholder.appendChild(libraryIndicator);
+        if (attempt > maxRetries) {
+          // Final failure - show placeholder
+          console.error(`Failed to load cover after ${maxRetries} retries:`, error);
+          const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
+          const placeholder = document.createElement('div');
+          placeholder.className = 'showcase-cover-placeholder';
+          placeholder.textContent = '📚';
+
+          if (libraryIndicator) {
+            placeholder.style.position = 'relative';
+            placeholder.appendChild(libraryIndicator);
+          }
+
+          skeletonEl.replaceWith(placeholder);
+          return;
         }
 
-        skeletonEl.replaceWith(placeholder);
-      }
-    } catch (error) {
-      console.error('Error loading cover:', error);
-      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
-      const placeholder = document.createElement('div');
-      placeholder.className = 'showcase-cover-placeholder';
-      placeholder.textContent = '📚';
+        // Exponential backoff with scaled jitter
+        // Base delay: 2^attempt seconds, jitter: 0 to (base delay * 0.5)
+        const baseDelay = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * (baseDelay * 0.5);
+        const retryDelay = baseDelay + jitter;
 
-      // Re-add library indicator if it existed
-      if (libraryIndicator) {
-        placeholder.style.position = 'relative';
-        placeholder.appendChild(libraryIndicator);
+        console.log(`Cover load failed (attempt ${attempt}), retrying in ${Math.round(retryDelay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
+    }
+  }
 
-      skeletonEl.replaceWith(placeholder);
+  /**
+   * Find and show detail view by normalized title from URL
+   * @param {string} detailIdentifier - Normalized title from URL parameter
+   */
+  showDetailByIdentifier(detailIdentifier) {
+    if (!this.currentGroups || this.currentGroups.length === 0) {
+      console.warn('Cannot show detail: no groups loaded');
+      return;
+    }
+
+    // Find group by normalized title or display title slug
+    const group = this.currentGroups.find(g => {
+      const normalizedMatch = g.normalized_title === detailIdentifier;
+      const slugMatch = g.display_title?.toLowerCase().replace(/\s+/g, '-') === detailIdentifier;
+      return normalizedMatch || slugMatch;
+    });
+
+    if (group) {
+      this.showDetail(group, false); // Don't update history - we're restoring from URL
+    } else {
+      console.warn(`Cannot find group with identifier: ${detailIdentifier}`);
     }
   }
 
   /**
    * Show detail view for a group
    * @param {Object} group - Audiobook group data
+   * @param {boolean} updateHistory - Whether to push state to browser history (default true)
    */
-  showDetail(group) {
+  showDetail(group, updateHistory = true) {
     const showcaseDetail = this.elements.detail;
     const showcaseGrid = this.elements.grid;
     if (!showcaseDetail) return;
+
+    // Store group for later reference (e.g., back button)
+    this.currentDetailGroup = group;
+
+    // Update URL with detail parameter
+    if (updateHistory && this.router) {
+      const currentState = this.router.getStateFromURL();
+      const newState = {
+        ...currentState,
+        detail: group.normalized_title || group.display_title?.toLowerCase().replace(/\s+/g, '-') || 'unknown'
+      };
+      this.router.updateURL(newState, false); // Push new state
+    }
 
     // Hide grid, show detail
     if (showcaseGrid) showcaseGrid.style.display = 'none';
@@ -373,13 +465,23 @@ export class ShowcaseView {
 
   /**
    * Close detail view and show grid
+   * @param {boolean} updateHistory - Whether to update browser history (default true)
    */
-  closeDetail() {
+  closeDetail(updateHistory = true) {
     const showcaseDetail = this.elements.detail;
     const showcaseGrid = this.elements.grid;
 
     if (showcaseDetail) showcaseDetail.style.display = 'none';
     if (showcaseGrid) showcaseGrid.style.display = '';
+
+    // Clear stored group
+    this.currentDetailGroup = null;
+
+    // Update URL to remove detail parameter
+    if (updateHistory && this.router) {
+      // Use history.back() to go back to previous state
+      window.history.back();
+    }
   }
 
   /**
@@ -415,40 +517,61 @@ export class ShowcaseView {
   }
 
   /**
-   * Load cover for detail view
+   * Load cover for detail view with retry, backoff, and jitter
    * @param {HTMLElement} skeletonEl - Skeleton element
    * @param {string} mamId - MAM ID
    * @param {string} title - Title
    * @param {string} author - Author
    */
   async loadDetailCover(skeletonEl, mamId, title, author) {
-    try {
-      const data = await api.fetchCover({
-        mam_id: mamId,
-        title: title || '',
-        author: author || '',
-        max_retries: '2'
-      });
+    const maxRetries = 3;
+    let attempt = 0;
 
-      if (data.cover_url) {
-        const img = document.createElement('img');
-        img.className = 'showcase-detail-cover';
-        img.src = data.cover_url;
-        img.alt = title || 'Cover';
+    while (attempt <= maxRetries) {
+      try {
+        const data = await api.fetchCover({
+          mam_id: mamId,
+          title: title || '',
+          author: author || '',
+          max_retries: '3'
+        });
 
-        img.onload = () => {
-          skeletonEl.replaceWith(img);
-        };
+        if (data.cover_url) {
+          const img = document.createElement('img');
+          img.className = 'showcase-detail-cover';
+          img.src = data.cover_url;
+          img.alt = title || 'Cover';
 
-        img.onerror = () => {
+          img.onload = () => {
+            skeletonEl.replaceWith(img);
+          };
+
+          img.onerror = () => {
+            skeletonEl.style.display = 'none';
+          };
+
+          return; // Success
+        } else {
           skeletonEl.style.display = 'none';
-        };
-      } else {
-        skeletonEl.style.display = 'none';
+          return;
+        }
+      } catch (error) {
+        attempt++;
+
+        if (attempt > maxRetries) {
+          console.error(`Failed to load detail cover after ${maxRetries} retries:`, error);
+          skeletonEl.style.display = 'none';
+          return;
+        }
+
+        // Exponential backoff with scaled jitter
+        const baseDelay = Math.pow(2, attempt) * 1000;
+        const jitter = Math.random() * (baseDelay * 0.5);
+        const retryDelay = baseDelay + jitter;
+
+        console.log(`Detail cover load failed (attempt ${attempt}), retrying in ${Math.round(retryDelay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
       }
-    } catch (error) {
-      console.error('Error loading detail cover:', error);
-      skeletonEl.style.display = 'none';
     }
   }
 }
