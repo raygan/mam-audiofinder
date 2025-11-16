@@ -1,83 +1,292 @@
 # Hardcover API Reference
 
-This document provides a summary of the Hardcover API's public endpoints, focusing on their function and return formats.
+**⚠️ IMPORTANT:** The Hardcover API is a **GraphQL API**, not a REST API. All queries are made via GraphQL to a single endpoint.
 
-## Unified Search Endpoint
+**Official Documentation:** https://docs.hardcover.app/api/getting-started/
+**API Endpoint:** `https://api.hardcover.app/graphql`
+**API Status:** Beta (actively being developed)
 
-The Hardcover API provides a single, unified search endpoint for accessing its data. It behaves similarly to a GraphQL query, allowing clients to specify the type of data to search, filtering criteria, and the desired return fields.
-
-### `GET /api/search`
-
-This is the primary endpoint for all search operations.
-
-#### Parameters
-
-| Name | Type | Description | Required |
-|---|---|---|---|
-| `q` | string | The search term. | Yes |
-| `type` | string | The type of content to search for. Can be `book`, `author`, `list`, `user`, `character`, `publisher`, `series`, or `prompt`. Defaults to `book`. | No |
-| `page` | integer | The page number for pagination. Defaults to `1`. | No |
-| `per_page` | integer | The number of results to return per page. Defaults to `25`. | No |
-| `sort` | string | A comma-separated list of fields to sort by, with direction (e.g., `_text_match:desc,books_count:desc`). | No |
-| `fields` | string | A comma-separated list of attributes to search within for the given `type`. | No |
-| `weights`| string | A comma-separated list of weights corresponding to the `fields` to prioritize certain attributes. | No |
+This document summarizes the Hardcover GraphQL API's capabilities, authentication, and usage patterns.
 
 ---
 
-### Return Format
+## Table of Contents
 
-The API returns a JSON object containing the search results and pagination details.
+1. [Authentication](#authentication)
+2. [Rate Limits](#rate-limits)
+3. [GraphQL Endpoint](#graphql-endpoint)
+4. [Search Queries](#search-queries)
+5. [Content Types](#content-types)
+6. [Series Queries](#series-queries)
+
+---
+
+## Authentication
+
+### Getting Your API Token
+
+1. Log in to your Hardcover account
+2. Navigate to your account settings page
+3. Click on the **Hardcover API** link
+4. Your API token will be displayed at the top of the page
+
+### Using Your Token
+
+**⚠️ Security Warning:** API tokens must be kept private and should **only** be used from backend code, never in browser/client-side code.
+
+**Authentication Header:**
+```
+Authorization: Bearer YOUR_API_TOKEN
+```
+
+**Example with httpx (Python):**
+```python
+headers = {"Authorization": f"Bearer {your_api_token}"}
+response = await client.post(
+    "https://api.hardcover.app/graphql",
+    headers=headers,
+    json={"query": your_graphql_query}
+)
+```
+
+---
+
+## Rate Limits
+
+| Limit Type | Value |
+|------------|-------|
+| **Requests per minute** | 60 |
+| **Query timeout** | 30 seconds max |
+
+**Important:** The same API used by the Hardcover website, iOS, and Android apps is available to developers. Rate limits apply per API token.
+
+**Recommendation:** Implement caching and request batching to stay within limits. Consider 5-minute cache TTL for frequently accessed data.
+
+---
+
+## GraphQL Endpoint
+
+**URL:** `https://api.hardcover.app/graphql`
+**Method:** `POST`
+**Content-Type:** `application/json`
+
+### Request Format
 
 ```json
 {
-  "query": "your search term",
-  "query_type": "book",
-  "page": 1,
-  "per_page": 25,
-  "ids": [
-    "list of result IDs"
-  ],
-  "results": [
-    {
-      "id": "string",
-      "title": "string",
-      "pages": "number",
-      "published_year": "number",
-      "cover": "string (URL)",
-      "authors": [
-        {
-          "id": "string",
-          "name": "string"
-        }
-      ]
-    }
-  ]
+  "query": "your GraphQL query string",
+  "variables": {
+    "optional": "variables"
+  }
 }
 ```
 
-### Search Types (`type`)
+### Testing Queries
 
-The behavior of the search endpoint and the structure of the objects in the `results` array depend on the `type` parameter.
+Hardcover provides a **GraphQL Console** for testing queries:
+- Add a header called `authorization` with your token as the value
+- Write and test queries interactively
 
-#### `type=book` (Default)
-- **Description:** Searches for books.
-- **Default Search Fields:** `title`, `subtitle`, `series`, `author_names`, `description`
-- **Result Object Fields:** `id`, `title`, `goodreads_id`, `pages`, `published_year`, `cover`, `authors`, and more.
+---
 
-#### `type=author`
-- **Description:** Searches for authors.
-- **Default Search Fields:** `name`, `name_personal`, `alternate_names`, `series_names`, `books`
-- **Result Object Fields:** `id`, `name`, `goodreads_id`, `slug`, `image`, `books_count`, and more.
+## Search Queries
 
-#### `type=list`
-- **Description:** Searches for user-created lists.
-- **Default Search Fields:** `name`, `user_name`, `description`
-- **Result Object Fields:** `id`, `name`, `user_id`, `slug`, `description`, `entries_count`.
+The Hardcover API supports searching across multiple content types using GraphQL queries.
 
-#### `type=user`
-- **Description:** Searches for users.
-- **Default Search Fields:** `name`, `username`
-- **Result Object Fields:** `id`, `name`, `username`, `image`.
+### Searchable Content Types
 
-#### Other Types
-The API also supports searching for `character`, `publisher`, `series`, and `prompt`, each with their own set of default fields and result structures.
+- `books`
+- `authors`
+- `series`
+- `lists` (user-created)
+- `users`
+- `characters`
+- `publishers`
+- `prompts`
+
+### Example: Basic Book Search
+
+```graphql
+query SearchBooks($query: String!) {
+  books(where: {title: {_ilike: $query}}, limit: 25) {
+    id
+    title
+    subtitle
+    pages
+    published_year
+    image
+    authors {
+      id
+      name
+    }
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "query": "%Sanderson%"
+}
+```
+
+### Filtering with `where` Clause
+
+GraphQL queries support filtering with the `where` clause. Example:
+
+```graphql
+{
+  me {
+    user_books(where: {status_id: {_eq: 3}}) {
+      book {
+        title
+        authors {
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+**Common Operators:**
+- `_eq` - equals
+- `_ilike` - case-insensitive LIKE
+- `_gt` / `_lt` - greater than / less than
+- `_in` - in array
+
+---
+
+## Content Types
+
+### Books
+
+**Searchable Fields:** `title`, `subtitle`, `series`, `author_names`, `description`
+
+**Available Fields:**
+- `id` - Unique identifier
+- `title` - Book title
+- `subtitle` - Book subtitle
+- `description` - Book synopsis/description
+- `pages` - Page count
+- `published_year` - Year of publication
+- `image` - Cover image URL
+- `goodreads_id` - Goodreads identifier
+- `authors` - Array of author objects
+  - `id` - Author ID
+  - `name` - Author name
+- `series` - Series information (if part of series)
+- **Note:** Additional fields may be available; refer to GraphQL introspection
+
+### Authors
+
+**Searchable Fields:** `name`, `name_personal`, `alternate_names`, `series_names`, `books`
+
+**Available Fields:**
+- `id` - Unique identifier
+- `name` - Author name
+- `name_personal` - Personal name variant
+- `alternate_names` - Alternative name spellings
+- `goodreads_id` - Goodreads identifier
+- `slug` - URL-friendly identifier
+- `image` - Author photo URL
+- `books_count` - Total number of books
+
+### Series
+
+**Searchable Fields:** `name`, `author_name`
+
+**Available Fields:**
+- `id` - Unique identifier
+- `name` - Series name
+- `author_name` - Primary author's name
+- `primary_books_count` - Count of books with integer positions (1, 2, 3, etc.; excludes 1.5 or empty)
+- `readers_count` - Sum of `users_read_count` for all books in series
+- **Note:** Query books within a series using series relationships
+
+### Lists
+
+**Searchable Fields:** `name`, `user_name`, `description`
+
+**Available Fields:**
+- `id` - Unique identifier
+- `name` - List name
+- `user_id` - Creator's user ID
+- `slug` - URL-friendly identifier
+- `description` - List description
+- `entries_count` - Number of items in list
+
+### Users
+
+**Searchable Fields:** `name`, `username`
+
+**Available Fields:**
+- `id` - Unique identifier
+- `name` - Display name
+- `username` - Username
+- `image` - Profile image URL
+
+### Other Types
+
+The following types are supported but require further documentation:
+- `character`
+- `publisher`
+- `prompt`
+
+---
+
+## Series Queries
+
+**Critical for MAM AudioFinder Phase 2 Integration**
+
+### Example: Search for Series by Name
+
+```graphql
+query SearchSeries($name: String!) {
+  series(where: {name: {_ilike: $name}}, limit: 10) {
+    id
+    name
+    author_name
+    primary_books_count
+    readers_count
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "name": "%Stormlight%"
+}
+```
+
+### Example: Get Books in a Series
+
+```graphql
+query GetSeriesBooks($seriesId: Int!) {
+  series_by_pk(id: $seriesId) {
+    id
+    name
+    books(order_by: {position: asc}) {
+      id
+      title
+      position
+      published_year
+      image
+      authors {
+        id
+        name
+      }
+    }
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "seriesId": 12345
+}
+```
+
+**Note:** The exact field names and query structure may vary. Test queries in the GraphQL console to confirm.
