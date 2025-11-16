@@ -97,6 +97,7 @@ Remaining:
 - [ ] the '# versions' text is behind the cover
 - [ ] hitting back after clicking on a book send you to the search page with the query posed fix
 - [ ] add in book title urls when clicking on a book in showcase view
+- [ ] prevent showcase from sending an empty query to mam when first clicked
 ---
 # MAM Audiobook Finder - Refined Todo List
 
