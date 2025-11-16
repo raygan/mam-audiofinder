@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from collections import defaultdict
 from typing import Dict, List
 
-from config import MAM_BASE, MAM_COOKIE
+from config import MAM_BASE, MAM_COOKIE, ABS_CHECK_LIBRARY
 from abs_client import abs_client
 
 router = APIRouter()
@@ -207,6 +207,31 @@ async def showcase(
 
     # Sort groups by total versions (descending) to show popular titles first
     groups.sort(key=lambda x: x["total_versions"], reverse=True)
+
+    # Check which groups have items in ABS library (if feature enabled)
+    if ABS_CHECK_LIBRARY and groups:
+        try:
+            # For showcase, check the display title and author for each group
+            items_to_check = [(group["display_title"] or "", group["author"] or "") for group in groups]
+
+            # Call library check
+            library_results = await abs_client.check_library_items(items_to_check)
+
+            # Update groups with library status
+            for group in groups:
+                cache_key = f"{(group['display_title'] or '').lower().strip()}||{(group['author'] or '').lower().strip()}"
+                group["in_abs_library"] = library_results.get(cache_key, False)
+
+            logger.info(f"📚 Showcase library check: {sum(g['in_abs_library'] for g in groups)}/{len(groups)} groups found in ABS")
+        except Exception as e:
+            logger.error(f"❌ Showcase library check failed: {e}")
+            # Continue with in_abs_library=False on error
+            for group in groups:
+                group["in_abs_library"] = False
+    else:
+        # Feature disabled or no groups
+        for group in groups:
+            group["in_abs_library"] = False
 
     logger.info(f"✅ Showcase: Returning {len(groups)} title groups from {len(raw.get('data', []))} results")
 

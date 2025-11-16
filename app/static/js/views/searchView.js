@@ -5,6 +5,7 @@
 import { api } from '../core/api.js';
 import { escapeHtml, formatSize } from '../core/utils.js';
 import { CoverLoader } from '../services/coverLoader.js';
+import { addLibraryIndicator } from '../components/libraryIndicator.js';
 
 /**
  * SearchView handles the search form and results display
@@ -120,6 +121,11 @@ export class SearchView {
       author: item.author_info || '',
       rowId: rowId
     });
+
+    // Add library indicator if item is in ABS library
+    if (item.in_abs_library) {
+      addLibraryIndicator(coverContainer, true);
+    }
 
     // Create the row structure
     const coverCell = document.createElement('td');

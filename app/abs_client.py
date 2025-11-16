@@ -4,9 +4,10 @@ Handles API communication with Audiobookshelf server.
 """
 import logging
 import httpx
-from typing import Optional
+import time
+from typing import Optional, List, Tuple, Dict
 
-from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT
+from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT, ABS_LIBRARY_CACHE_TTL
 from covers import cover_service
 
 logger = logging.getLogger("mam-audiofinder")
@@ -20,6 +21,9 @@ class AudiobookshelfClient:
         self.base_url = ABS_BASE_URL
         self.api_key = ABS_API_KEY
         self.library_id = ABS_LIBRARY_ID
+        # In-memory cache for library items: {cache_key: (result, timestamp)}
+        self._library_cache: Dict[str, Tuple[bool, float]] = {}
+        self._library_items_cache: Optional[Tuple[List[dict], float]] = None
 
     @property
     def is_configured(self) -> bool:
@@ -52,6 +56,153 @@ class AudiobookshelfClient:
         except Exception as e:
             logger.error(f"❌ Audiobookshelf API test failed with exception: {e}")
             return False
+
+    async def check_library_items(self, items: List[Tuple[str, str]]) -> Dict[str, bool]:
+        """
+        Check which items exist in the Audiobookshelf library.
+
+        Args:
+            items: List of (title, author) tuples to check
+
+        Returns:
+            Dict mapping "{title}||{author}" to boolean (True if in library, False otherwise)
+
+        Uses in-memory caching with TTL to reduce API calls.
+        """
+        if not self.is_configured or not self.library_id:
+            logger.debug("📚 ABS not fully configured, skipping library check")
+            # Return all False if not configured
+            return {f"{title}||{author}": False for title, author in items}
+
+        if not items:
+            return {}
+
+        logger.info(f"📚 Checking {len(items)} items against ABS library")
+
+        # Fetch library items with caching
+        try:
+            library_items = await self._get_cached_library_items()
+        except Exception as e:
+            logger.error(f"❌ Failed to fetch library items: {e}")
+            # Return all False on error
+            return {f"{title}||{author}": False for title, author in items}
+
+        # Check each item against library
+        results = {}
+        for title, author in items:
+            cache_key = f"{title.lower().strip()}||{author.lower().strip()}"
+
+            # Check cache first
+            if cache_key in self._library_cache:
+                cached_result, cached_time = self._library_cache[cache_key]
+                if time.time() - cached_time < ABS_LIBRARY_CACHE_TTL:
+                    results[cache_key] = cached_result
+                    continue
+
+            # Check if item exists in library
+            in_library = self._match_library_item(title, author, library_items)
+
+            # Cache the result
+            self._library_cache[cache_key] = (in_library, time.time())
+            results[cache_key] = in_library
+
+        logger.info(f"✅ Library check complete: {sum(results.values())}/{len(results)} items found in library")
+        return results
+
+    async def _get_cached_library_items(self) -> List[dict]:
+        """
+        Fetch library items from ABS with caching.
+        Cache is invalidated after ABS_LIBRARY_CACHE_TTL seconds.
+        """
+        current_time = time.time()
+
+        # Check if cache is valid
+        if self._library_items_cache:
+            cached_items, cached_time = self._library_items_cache
+            if current_time - cached_time < ABS_LIBRARY_CACHE_TTL:
+                logger.debug(f"📦 Using cached library items ({len(cached_items)} items)")
+                return cached_items
+
+        # Fetch fresh data
+        logger.info(f"🌐 Fetching library items from ABS")
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+
+        async with httpx.AsyncClient(timeout=ABS_VERIFY_TIMEOUT) as client:
+            r = await client.get(
+                f"{self.base_url}/api/libraries/{self.library_id}/items",
+                headers=headers,
+                params={"limit": 1000, "minified": "1"}  # Minified for performance
+            )
+
+            if r.status_code != 200:
+                logger.warning(f"⚠️  Library fetch failed: HTTP {r.status_code}")
+                raise Exception(f"HTTP {r.status_code}")
+
+            data = r.json()
+            items = data.get("results", [])
+
+            # Cache the results
+            self._library_items_cache = (items, current_time)
+            logger.info(f"📦 Cached {len(items)} library items")
+
+            return items
+
+    def _match_library_item(self, title: str, author: str, library_items: List[dict]) -> bool:
+        """
+        Check if a title/author pair matches any item in the library.
+        Uses fuzzy matching similar to verify_import logic.
+
+        Args:
+            title: Book title to search for
+            author: Author name to search for
+            library_items: List of library items from ABS API
+
+        Returns:
+            True if a match is found, False otherwise
+        """
+        if not title:
+            return False
+
+        title_lower = title.lower().strip()
+        author_lower = author.lower().strip() if author else ""
+
+        for item in library_items:
+            item_metadata = item.get("media", {}).get("metadata", {})
+            item_title = (item_metadata.get("title") or "").lower().strip()
+            item_author = (item_metadata.get("authorName") or "").lower().strip()
+
+            # Calculate match score
+            score = 0
+            title_match = False
+
+            # Exact title match
+            if item_title == title_lower:
+                score += 100
+                title_match = True
+            # Title contains or is contained
+            elif title_lower in item_title or item_title in title_lower:
+                score += 50
+                title_match = True
+
+            if not title_match:
+                continue
+
+            # Author matching
+            if author_lower:
+                if item_author == author_lower:
+                    score += 50
+                elif author_lower in item_author or item_author in author_lower:
+                    score += 25
+            else:
+                # No author to verify, count as match
+                score += 10
+
+            # Accept matches with score >= 50 (at least partial title match)
+            if score >= 50:
+                logger.debug(f"✓ Match found: '{item_title}' by '{item_author}' (score: {score})")
+                return True
+
+        return False
 
     async def fetch_cover(self, title: str, author: str = "", mam_id: str = "", force_refresh: bool = False) -> dict:
         """

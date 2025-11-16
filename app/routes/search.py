@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from config import MAM_BASE, MAM_COOKIE, ABS_BASE_URL, ABS_API_KEY
+from config import MAM_BASE, MAM_COOKIE, ABS_BASE_URL, ABS_API_KEY, ABS_CHECK_LIBRARY
 from abs_client import abs_client
 
 router = APIRouter()
@@ -111,7 +111,27 @@ async def search(payload: dict):
             "catname": item.get("catname"),
             "added": item.get("added"),
             "dl": item.get("dl"),
+            "in_abs_library": False,  # Default to False, will be updated below
         })
+
+    # Check which items exist in ABS library (if feature enabled)
+    if ABS_CHECK_LIBRARY and out:
+        try:
+            # Extract (title, author) pairs from results
+            items_to_check = [(result["title"] or "", result["author_info"] or "") for result in out]
+
+            # Call library check
+            library_results = await abs_client.check_library_items(items_to_check)
+
+            # Update results with library status
+            for result in out:
+                cache_key = f"{(result['title'] or '').lower().strip()}||{(result['author_info'] or '').lower().strip()}"
+                result["in_abs_library"] = library_results.get(cache_key, False)
+
+            logger.info(f"📚 Library check: {sum(r['in_abs_library'] for r in out)}/{len(out)} items found in ABS")
+        except Exception as e:
+            logger.error(f"❌ Library check failed: {e}")
+            # Continue with in_abs_library=False on error
 
     # NOTE: We no longer fetch covers during search to avoid blocking.
     # Covers are fetched progressively via the /api/covers/fetch endpoint.

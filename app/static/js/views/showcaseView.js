@@ -4,6 +4,7 @@
 
 import { api } from '../core/api.js';
 import { escapeHtml, formatSize } from '../core/utils.js';
+import { addLibraryIndicator } from '../components/libraryIndicator.js';
 
 /**
  * ShowcaseView handles the showcase grid and detail display
@@ -120,6 +121,11 @@ export class ShowcaseView {
     const coverSkeleton = document.createElement('div');
     coverSkeleton.className = 'showcase-cover-skeleton';
 
+    // Add library indicator if group is in ABS library
+    if (group.in_abs_library) {
+      addLibraryIndicator(coverSkeleton, true);
+    }
+
     // Create versions badge
     const versionsBadge = document.createElement('div');
     versionsBadge.className = 'showcase-versions-badge';
@@ -179,6 +185,9 @@ export class ShowcaseView {
    */
   async loadShowcaseCover(skeletonEl, mamId, title, author) {
     try {
+      // Preserve library indicator if it exists
+      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
+
       const data = await api.fetchCover({
         mam_id: mamId,
         title: title || '',
@@ -194,26 +203,58 @@ export class ShowcaseView {
         img.loading = 'lazy';
 
         img.onload = () => {
-          skeletonEl.replaceWith(img);
+          // Create wrapper to maintain relative positioning for indicator
+          const wrapper = document.createElement('div');
+          wrapper.style.position = 'relative';
+          wrapper.appendChild(img);
+
+          // Re-add library indicator if it existed
+          if (libraryIndicator) {
+            wrapper.appendChild(libraryIndicator);
+          }
+
+          skeletonEl.replaceWith(wrapper);
         };
 
         img.onerror = () => {
           const placeholder = document.createElement('div');
           placeholder.className = 'showcase-cover-placeholder';
           placeholder.textContent = '📚';
+
+          // Re-add library indicator if it existed
+          if (libraryIndicator) {
+            placeholder.style.position = 'relative';
+            placeholder.appendChild(libraryIndicator);
+          }
+
           skeletonEl.replaceWith(placeholder);
         };
       } else {
         const placeholder = document.createElement('div');
         placeholder.className = 'showcase-cover-placeholder';
         placeholder.textContent = '📚';
+
+        // Re-add library indicator if it existed
+        if (libraryIndicator) {
+          placeholder.style.position = 'relative';
+          placeholder.appendChild(libraryIndicator);
+        }
+
         skeletonEl.replaceWith(placeholder);
       }
     } catch (error) {
       console.error('Error loading cover:', error);
+      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
       const placeholder = document.createElement('div');
       placeholder.className = 'showcase-cover-placeholder';
       placeholder.textContent = '📚';
+
+      // Re-add library indicator if it existed
+      if (libraryIndicator) {
+        placeholder.style.position = 'relative';
+        placeholder.appendChild(libraryIndicator);
+      }
+
       skeletonEl.replaceWith(placeholder);
     }
   }
