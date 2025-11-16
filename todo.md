@@ -177,7 +177,7 @@ Remaining:
 *Pull book descriptions from Audiobookshelf to enhance UI*
 
 ### Database Schema for Descriptions
-- [ ] **Create migration 007_add_abs_description.sql**:
+- [x] **Create migration 007_add_abs_description.sql**:
   - Add `abs_description` column (TEXT) to history table - stores book synopsis
   - Add `abs_description_source` column (TEXT) - tracks where description came from ('abs', 'mam', 'manual')
   - Consider adding description to covers table for showcase view enhancement
@@ -186,7 +186,7 @@ Remaining:
   - [ ] extract card_helper from showcase titles for card use in other pages
 
 ### Description Fetching Implementation
-- [ ] **Extend AudiobookshelfClient** in `app/abs_client.py`:
+- [x] **Extend AudiobookshelfClient** in `app/abs_client.py`:
   - Add `fetch_item_details(item_id: str) -> dict` method
   - Use `/api/items/{id}` endpoint (see _items.md schema) to get full item metadata
   - Extract description/synopsis field from response
@@ -194,7 +194,7 @@ Remaining:
   - Add caching layer to avoid repeated fetches for same item
 
 ### API Response Enhancement
-- [ ] **Update data responses** to include descriptions:
+- [x] **Update data responses** to include descriptions:
   - Update `/search` endpoint to attempt description fetch when cover is fetched
   - Add description to showcase view data (`/api/showcase` if implemented)
 
@@ -248,7 +248,11 @@ Remaining:
 ## Phase 5. Documentation Updates
 *Keep documentation aligned with new features*
 
-### README.md Updates
+### README.md Updates 
+   
+- [ ] **Audit Code**
+  - Audit code and ensure full understanding of currenly implemented and deprecated features, the todo.md is a good source of completed changes as claude.md.
+
 - [ ] **Document verification feature**:
   - Add "Import Verification" section explaining automatic ABS checks
   - Document verification status indicators in UI
@@ -282,7 +286,7 @@ Remaining:
   - ABS_VERIFY_TIMEOUT (optional, default 10)
   - ABS_CHECK_LIBRARY (optional, default false)
   - ABS_LIBRARY_CACHE_TTL (optional, default 300)
-  - Remove deprecated ABS_LIBRARY_ID references
+
   
 # TO-DO IN FUTURE
 ## Stretch Goal: Book Descriptions & Enhanced Search
