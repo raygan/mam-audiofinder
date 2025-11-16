@@ -48,6 +48,11 @@ def read_metadata_json(directory: Path) -> dict:
     """
     Read metadata.json from the imported directory.
     Returns dict with title, authors, narrators, series, etc. or empty dict if not found.
+
+    Cleans up common metadata issues:
+    - Removes disc indicators from titles (e.g., "(Disc 01)")
+    - Cleans author names (removes " - translator", " - contributor", etc.)
+    - Handles multiple authors properly
     """
     metadata_path = directory / "metadata.json"
 
@@ -60,11 +65,30 @@ def read_metadata_json(directory: Path) -> dict:
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
 
+        # Extract and clean title - remove disc indicators
+        import re
+        raw_title = metadata.get("title", "")
+        clean_title = re.sub(r'\s*\(Disc\s+\d+\)\s*$', '', raw_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r'\s*\(Disk\s+\d+\)\s*$', '', clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r'\s*\(CD\s+\d+\)\s*$', '', clean_title, flags=re.IGNORECASE)
+        clean_title = clean_title.strip()
+
+        # Clean authors - remove role indicators
+        raw_authors = metadata.get("authors", [])
+        clean_authors = []
+        for author in raw_authors:
+            if isinstance(author, str):
+                # Remove role indicators like "- translator", "- contributor", etc.
+                clean_author = re.sub(r'\s*-\s*(translator|contributor|editor|foreword|introduction|afterword).*$', '', author, flags=re.IGNORECASE)
+                clean_author = clean_author.strip()
+                if clean_author:
+                    clean_authors.append(clean_author)
+
         # Extract relevant fields
         result = {
-            "title": metadata.get("title", ""),
+            "title": clean_title or raw_title,  # Fallback to raw if cleaning removed everything
             "subtitle": metadata.get("subtitle", ""),
-            "authors": metadata.get("authors", []),  # List of author names
+            "authors": clean_authors if clean_authors else raw_authors,  # Use cleaned or original
             "narrators": metadata.get("narrators", []),  # List of narrator names
             "series": metadata.get("series", []),  # List like ["Series Name #1"]
             "publisher": metadata.get("publisher", ""),
@@ -75,6 +99,11 @@ def read_metadata_json(directory: Path) -> dict:
         }
 
         logger.info(f"📚 Metadata found: title='{result['title']}', authors={result['authors']}, narrators={result['narrators']}")
+        if raw_title != clean_title:
+            logger.info(f"   🧹 Cleaned title: '{raw_title}' → '{clean_title}'")
+        if raw_authors != clean_authors:
+            logger.info(f"   🧹 Cleaned authors: {raw_authors} → {clean_authors}")
+
         return result
 
     except json.JSONDecodeError as e:

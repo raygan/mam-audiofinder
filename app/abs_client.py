@@ -241,11 +241,11 @@ class AudiobookshelfClient:
                 logger.info(f"🌐 Calling ABS /api/libraries/{self.library_id}/items (attempt {attempt}/{max_attempts})")
 
                 async with httpx.AsyncClient(timeout=ABS_VERIFY_TIMEOUT) as client:
-                    # Search library items
+                    # Search library items - use large limit to get all items
                     r = await client.get(
                         f"{self.base_url}/api/libraries/{self.library_id}/items",
                         headers=headers,
-                        params={"limit": 20, "minified": "0"}  # Get full metadata for comparison
+                        params={"limit": 1000, "minified": "0"}  # Get full metadata for comparison
                     )
 
                     logger.info(f"📡 ABS library items response: HTTP {r.status_code}")
