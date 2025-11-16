@@ -2,19 +2,14 @@
 
 ## Project Overview
 
-**MAM Audiobook Finder** is a lightweight web application that enables users to search MyAnonamouse (MAM) for audiobooks, add them to qBittorrent, and import completed downloads into an Audiobookshelf library.
-
-**Key Characteristics:**
-- Personal use tool (NOT for public deployment)
-- No authentication (requires private network/VPN)
-- Docker-first deployment strategy
-- Multi-page web application with modular ES6 JavaScript
+**MAM Audiobook Finder** is a lightweight web application for searching MyAnonamouse audiobooks, adding them to qBittorrent, and importing completed downloads into Audiobookshelf. Personal use tool with zero authentication - Docker-first deployment, multi-page web app with modular ES6 JavaScript.
 
 ## Tech Stack
 
 **Backend:** Python 3.12, FastAPI, Uvicorn, SQLite, httpx, Jinja2
 **Frontend:** Vanilla JavaScript ES6 modules, HTML5, minimal CSS
 **Infrastructure:** Docker, Docker Compose
+**Testing:** pytest (223 test functions)
 
 ## Codebase Structure
 
@@ -25,9 +20,9 @@ mam-audiofinder/
 │   ├── config.py               # Environment configuration
 │   ├── db/
 │   │   ├── db.py              # Database engines and migrations
-│   │   └── migrations/        # SQL migration files (001-005)
-│   ├── abs_client.py          # Audiobookshelf API client
-│   ├── covers.py              # CoverService class
+│   │   └── migrations/        # SQL migration files (001-008)
+│   ├── abs_client.py          # Audiobookshelf API client (~850 lines)
+│   ├── covers.py              # CoverService class (~350 lines)
 │   ├── qb_client.py           # qBittorrent API helpers
 │   ├── torrent_helpers.py     # Torrent state and matching
 │   ├── utils.py               # Utility functions
@@ -37,6 +32,7 @@ mam-audiofinder/
 │   │   ├── history.py         # History CRUD
 │   │   ├── qbittorrent.py     # qBittorrent operations
 │   │   ├── import_route.py    # Import logic
+│   │   ├── showcase.py        # Grouped search results (NEW)
 │   │   ├── covers_route.py    # Cover serving
 │   │   └── logs_route.py      # Logs endpoint
 │   ├── static/
@@ -44,26 +40,25 @@ mam-audiofinder/
 │   │   │   ├── core/          # api.js, router.js, utils.js
 │   │   │   ├── services/      # coverLoader.js
 │   │   │   ├── views/         # searchView, historyView, showcaseView, logsView
-│   │   │   └── components/    # importForm.js
-│   │   ├── pages/             # search.js, history.js, showcase.js, logs.js
+│   │   │   ├── components/    # importForm.js, libraryIndicator.js
+│   │   │   └── pages/         # Entry scripts per page
 │   │   └── css/               # Stylesheets
 │   └── templates/
-│       ├── base.html          # Base template with nav
-│       ├── search.html        # Search page
-│       ├── history.html       # History page
-│       ├── showcase.html      # Showcase page
-│       └── logs.html          # Logs page
-├── tests/                     # Pytest suite (120 tests)
+│       └── *.html             # Jinja2 templates (base, search, history, showcase, logs)
+├── tests/                     # 223 test functions across 6 files
 │   ├── conftest.py           # Fixtures and configuration
-│   ├── test_search.py        # Search tests
-│   ├── test_covers.py        # Cover caching tests
-│   ├── test_verification.py  # ABS verification tests
-│   └── test_helpers.py       # Utility tests
-├── validate_env.py            # Startup validation
+│   ├── test_search.py
+│   ├── test_covers.py
+│   ├── test_verification.py
+│   ├── test_description_fetch.py
+│   ├── test_helpers.py
+│   └── test_migration_syntax.py
+├── BACKEND.md                 # Technical implementation details
+├── FRONTEND.md                # UI architecture documentation
+├── README.md                  # User-facing documentation
+├── env.example
 ├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── requirements-dev.txt
+└── docker-compose.yml
 ```
 
 ## Architecture & Data Flow
@@ -76,210 +71,176 @@ mam-audiofinder/
 
 ### Key Workflows
 
-**Search:** User Input → POST /search → MAM API → ABS Cover Fetch → Display with Progressive Loading
+**Search:** User Input → POST /search → MAM API (5min cache) → ABS Cover Fetch → Library Check → Display
 
 **Add:** User Click → POST /add → Fetch .torrent → qBittorrent API → Tag with MAM ID → Save to DB
 
-**Import:** POST /import → Match Torrent (hash/tag/fuzzy) → Validate Paths → Analyze Structure → Copy/Link/Move → Update Category
+**Import:** POST /import → Validate Paths → Analyze Structure → Copy/Link/Move → Wait for metadata.json → **Verify (3 retries)** → **Fetch Description** → Update DB
 
-**Cover Cache:** Check covers.db → If miss: ABS API → Download → Save to /data/covers/ → Return Local URL
+**Verification:** Check ABS library → Score match (ASIN/ISBN=200pts, Title=100pts, Author=50pts) → Return verified/mismatch/not_found
 
-**State Tracking:** GET /history → Fetch Live States → Match to History → Display Status/Progress
+**Cover Cache:** Check covers.db → If miss: ABS API → Download → Save to /data/covers/ → Auto-cleanup/healing
+
+For detailed workflows, see [BACKEND.md](BACKEND.md).
 
 ## Key Modules
 
 ### Backend Core
 
-**`main.py` (~70 lines):** Logging setup, DB init, FastAPI app creation, route registration
+**`main.py`:** Logging setup, DB init, FastAPI app creation, route registration
 
-**`config.py` (~70 lines):** Environment variables, MAM cookie, qBittorrent/ABS config, UMASK
+**`config.py`:** Environment variables with defaults
 
-**`db/db.py` (~130 lines):** SQLAlchemy engines, migration system, connection pooling
+**`db/db.py`:** SQLAlchemy engines (history.db, covers.db), migration system
 
-**`abs_client.py` (~850 lines):** AudiobookshelfClient class, cover fetching, library search, description fetching post-import
+**`abs_client.py` (~850 lines):** Key methods:
+- `verify_import()` - ASIN/ISBN matching, retry logic, scoring algorithm
+- `check_library_items()` - Batch library checking with caching
+- `fetch_item_details()` - Description/metadata fetching
+- `_update_description_after_verification()` - Post-verification description fetch
 
-**`covers.py` (~350 lines):** CoverService, local caching, auto-cleanup, auto-healing
+**`covers.py`:** CoverService with local caching, auto-cleanup, auto-healing
 
-**`torrent_helpers.py` (~220 lines):**
-- `map_qb_state_to_display()` - State codes to user-friendly text
-- `get_torrent_state()` - Fetch live torrent info
-- `validate_torrent_path()` - Path alignment validation
-- `extract_mam_id_from_tags()` - Extract MAM ID from tags
-- `match_torrent_to_history()` - Match by hash/mam_id/fuzzy title
+**`torrent_helpers.py`:** State mapping, path validation, MAM ID extraction, fuzzy matching
 
-**`utils.py` (~110 lines):** sanitize(), next_available(), extract_disc_track(), try_hardlink()
+**`utils.py`:** sanitize(), next_available(), extract_disc_track(), try_hardlink()
 
 ### Routes
 
-**basic.py:** GET / /history /showcase /logs (pages), GET /health /config
-**search.py:** POST /search
-**history.py:** GET /api/history, DELETE /api/history/{id}
-**qbittorrent.py:** GET /qb/torrents, GET /qb/torrent/{hash}/tree, POST /add
-**import_route.py:** POST /import
-**covers_route.py:** GET /covers/{filename}
-**logs_route.py:** GET /api/logs
+- `basic.py` - Page rendering (/, /history, /showcase, /logs), /health, /config
+- `search.py` - POST /search, cover fetching
+- `history.py` - GET /api/history, DELETE /api/history/{id}, POST /api/history/{id}/verify
+- `qbittorrent.py` - GET /qb/torrents, GET /qb/torrent/{hash}/tree, POST /add
+- `import_route.py` - POST /import (with verification + description fetch)
+- `showcase.py` - GET /api/showcase (grouped search results)
+- `covers_route.py` - GET /covers/{filename}
+- `logs_route.py` - GET /api/logs
 
-### Frontend Architecture (Multi-Page ES6 Modules)
+### Frontend Architecture
 
-**Core (~315 lines):**
-- `api.js` (~180): Centralized API client, 11 methods, cache-busting headers
-- `router.js` (~115): URL state management, query parameter parsing, navigation
-- `utils.js` (~30): escapeHtml(), formatSize()
+**Multi-page app:** Each route is separate HTML page with own entry script
 
-**Services (~180 lines):**
-- `coverLoader.js`: Lazy-loading with IntersectionObserver
+**Core (~315 lines):** api.js (11 methods), router.js (URL state), utils.js
 
-**Views (~1,220 lines):**
-- `searchView.js` (~230): Search form, results rendering, add to qB
-- `historyView.js` (~180): History table, live states, import forms
-- `showcaseView.js` (~405): Grid view, detail view, filtering
-- `logsView.js` (~80): Log fetching, level filtering, syntax highlighting
+**Services:** coverLoader.js (lazy loading with IntersectionObserver)
 
-**Components (~400 lines):**
-- `importForm.js`: Torrent selection, multi-disc detection, tree visualization, flatten preview
+**Views (~1,220 lines):** searchView, historyView, showcaseView, logsView
 
-**Pages (~500 lines):**
-- Entry scripts for each page (search.js, history.js, showcase.js, logs.js)
-- URL parameter restoration, view initialization, health checks
+**Components:** importForm.js (multi-disc detection), libraryIndicator.js (badges)
 
-**Architecture Patterns:**
-- Multi-page: Each page is separate route with own entry script
-- Event-driven: Custom events (torrentAdded, importCompleted, routerStateChange)
-- Dependency injection: DOM refs via constructor
-- No build step: Native ES6 modules
+**Patterns:** Event-driven, dependency injection, no build step
+
+For detailed frontend architecture, see [FRONTEND.md](FRONTEND.md).
 
 ## Database Schemas
 
-### History Table
+### history.db
+
 ```sql
 CREATE TABLE history (
   id INTEGER PRIMARY KEY,
   mam_id TEXT, title TEXT, author TEXT, narrator TEXT, dl TEXT,
   added_at TEXT DEFAULT (datetime('now')),
-  qb_status TEXT, qb_hash TEXT, imported_at TEXT,
-  abs_item_id TEXT, abs_cover_url TEXT, abs_cover_cached_at TEXT,
-  abs_verify_status TEXT, abs_verify_note TEXT,
-  abs_description_source TEXT, abs_metadata TEXT, abs_description TEXT
-)
+
+  -- qBittorrent tracking
+  qb_status TEXT, qb_hash TEXT,
+
+  -- Import tracking
+  imported_at TEXT,
+
+  -- Audiobookshelf integration (Migration 004)
+  abs_item_id TEXT,
+  abs_cover_url TEXT,
+  abs_cover_cached_at TEXT,
+
+  -- Verification system (Migration 006)
+  abs_verify_status TEXT,  -- 'verified', 'mismatch', 'not_found', 'unreachable', 'not_configured'
+  abs_verify_note TEXT,
+
+  -- Descriptions (Migration 007)
+  abs_description TEXT,
+  abs_metadata TEXT,       -- JSON blob
+  abs_description_source TEXT
+);
 ```
 
-### Covers Cache Table
+**Migrations:** 001-004 (initial + ABS), 006 (verification), 007 (descriptions)
+
+### covers.db
+
 ```sql
 CREATE TABLE covers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  mam_id TEXT UNIQUE NOT NULL, title TEXT, author TEXT,
-  cover_url TEXT NOT NULL, abs_item_id TEXT,
-  local_file TEXT, file_size INTEGER,
+  mam_id TEXT UNIQUE NOT NULL,
+  title TEXT,
+  author TEXT,
+  cover_url TEXT NOT NULL,
+  abs_item_id TEXT,
+  local_file TEXT,
+  file_size INTEGER,
   fetched_at TEXT DEFAULT (datetime('now')),
-  abs_metadata TEXT, abs_metadata_fetched_at TEXT, abs_description TEXT
-)
+
+  -- Metadata integration (Migration 008)
+  abs_description TEXT,
+  abs_metadata TEXT,
+  abs_metadata_fetched_at TEXT
+);
 ```
+
+**Migrations:** 005 (initial schema), 008 (descriptions)
 
 ## Key Features
 
-### FLATTEN_DISCS with Auto-Detection
+### Import Verification
+- Automatic verification after import (if ABS configured)
+- ASIN/ISBN priority matching (200 points), fuzzy title/author matching
+- 3 retry attempts with exponential backoff (1s, 2s, 4s)
+- Status badges in UI: ✓ verified, ⚠ mismatch, ✗ not_found, ? unreachable
+- Manual re-verification via "🔄 Verify" button
 
-**Problem:** Multi-disc audiobooks (Book/Disc 01/Track 01.mp3, Book/Disc 02/Track 01.mp3)
-**Solution:** Flatten to sequential (Book/Part 001.mp3, Book/Part 002.mp3)
+### Library Visibility
+- Green checkmark badges on search/showcase for items already in library
+- Batch checking with 5-minute cache (configurable via ABS_LIBRARY_CACHE_TTL)
+- Auto-enabled when ABS is configured (or set ABS_CHECK_LIBRARY explicitly)
 
-**Backend:** Per-request `flatten` parameter, extract_disc_track(), sequential renaming
-**Detector:** `/qb/torrent/{hash}/tree` endpoint analyzes structure, detects Disc/Disk/CD/Part patterns
-**Frontend:** Auto-checked checkbox when multi-disc detected, tree view, before/after preview
+### Description Fetching
+- Automatically fetched post-verification (score ≥100)
+- Updates both history.db and covers.db
+- Displayed in showcase view with expand/collapse
+- 5-minute cache to avoid redundant API calls
 
-### Cover Caching System
+### Showcase View
+- Groups search results by normalized title (removes articles, punctuation)
+- Card-based grid layout with covers
+- Detail view shows all versions/editions per title
+- URL state management (?detail=title-slug)
 
+### Multi-Disc Flattening
+- Auto-detects Disc/Disk/CD/Part patterns
+- Flattens to sequential files (Part 001.mp3, Part 002.mp3, ...)
+- Frontend shows before/after preview
+- Controlled by FLATTEN_DISCS env var (default true)
+
+### Cover Caching
 - Separate covers.db database
 - Local storage in /data/covers/
 - Auto-cleanup when exceeding MAX_COVERS_SIZE_MB
-- Connection pooling for concurrent fetches
 - Auto-healing for missing files
-
-### Description Fetching (Post-Import)
-
-**Flow:** Search → Add to qB → Import → Verify → **Fetch description** → Display in UI
-
-**Implementation:** `abs_client.py:_update_description_after_verification()`
-- Triggered when `verify_import()` succeeds (score >= 100)
-- Fetches full metadata from `/api/items/{id}?expanded=1`
-- Updates both covers.db and history.db with description/metadata
-- Non-blocking: verification succeeds even if fetch fails
-- Uses 60s cache to avoid redundant API calls
-
-**When descriptions are fetched:**
-- ✅ Successful import verification (ASIN/ISBN or title/author match)
-- ✅ Manual re-verification via "Refresh" button
-- ❌ Search results (external sources lack item IDs)
-- ❌ Verification mismatches or failures
-
-### Testing Framework
-
-**120 test cases** in pytest suite:
-- Search payload construction and parsing
-- Cover caching, cleanup, healing
-- ABS verification and retry logic
-- Utility functions (sanitize, paths, disc extraction)
-- Mock-based for external APIs
-- In-memory SQLite for DB tests
-
-```bash
-pytest tests/ -v                           # Run all
-pytest tests/test_search.py -v             # Specific file
-pytest tests/ --cov=app --cov-report=html  # Coverage
-```
-
-### Logging with Rotation
-
-- Location: /data/logs/app.log
-- Auto-rotation at LOG_MAX_MB (default 5MB)
-- Keeps LOG_MAX_FILES (default 5) rotated logs
-- Dual output: file (timestamped) + stderr (Docker)
-- Python RotatingFileHandler
+- Progressive loading with lazy loading (IntersectionObserver)
 
 ## Environment Configuration
 
-### Required Variables
+See `env.example` for full list with comments.
 
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `MAM_COOKIE` | `mam_id=abc123...` | MAM session cookie |
-| `QB_URL` | `http://qbittorrent:8080` | qBittorrent WebUI URL |
-| `QB_USER` | `admin` | qBittorrent username |
-| `QB_PASS` | `password123` | qBittorrent password |
-| `MEDIA_ROOT` | `/mnt/media` | Host path for torrents and library |
-| `DATA_DIR` | `/path/to/data` | Host path for database |
+**Required:** MAM_COOKIE, QB_URL/USER/PASS, MEDIA_ROOT, DATA_DIR
 
-### Optional Variables
+**Optional (ABS):** ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT, ABS_CHECK_LIBRARY, ABS_LIBRARY_CACHE_TTL, MAX_COVERS_SIZE_MB
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_PORT` | `8008` | Host port |
-| `DL_DIR` | `/media/torrents` | Container download path |
-| `LIB_DIR` | `/media/Books/Audiobooks` | Container library path |
-| `IMPORT_MODE` | `link` | Import method: link, copy, or move |
-| `FLATTEN_DISCS` | `true` | Flatten multi-disc audiobooks |
-| `QB_CATEGORY` | `mam-audiofinder` | Category for new torrents |
-| `QB_POSTIMPORT_CATEGORY` | `` | Category after import |
-| `PUID` | `1000` | Container user ID |
-| `PGID` | `1000` | Container group ID |
-| `UMASK` | `0002` | File creation mask |
-| `LOG_MAX_MB` | `5` | Max log file size |
-| `LOG_MAX_FILES` | `5` | Rotated logs to keep |
+**Optional (Behavior):** IMPORT_MODE (link/copy/move), FLATTEN_DISCS, QB_CATEGORY, QB_POSTIMPORT_CATEGORY
 
-### Path Mapping
+**Optional (Container):** APP_PORT, DL_DIR, LIB_DIR, PUID, PGID, UMASK, LOG_MAX_MB, LOG_MAX_FILES
 
-**Critical:** qBittorrent and this app run in separate containers with different filesystem views. `MEDIA_ROOT` must be mounted to BOTH containers at consistent paths.
-
-**Example:**
-```yaml
-# This app
-volumes:
-  - /mnt/storage:/media
-
-# qBittorrent
-volumes:
-  - /mnt/storage/torrents:/downloads
-  - /mnt/storage/Books:/books
-```
+**Critical:** `MEDIA_ROOT` must be mounted to BOTH this app and qBittorrent containers at consistent paths.
 
 ## Development
 
@@ -295,26 +256,18 @@ docker compose logs -f       # View logs
 
 **Backend:** Edit files → `docker compose up -d --build` → Check logs
 **Frontend:** Edit JS/HTML/CSS → Rebuild → Hard refresh browser (Ctrl+Shift+R)
-**Environment:** Edit .env → `docker compose up -d --force-recreate` (or `--build` if PUID/PGID changed)
-
-### Git Workflow
-
-- Branch naming: Must start with `claude/` (e.g., `claude/fix-bug-<session-id>`)
-- Commits: Descriptive messages, focus on "why"
+**Environment:** Edit .env → `docker compose up -d --force-recreate`
 
 ### Testing
 
-**Automated:**
 ```bash
 pip install -r requirements-dev.txt
-pytest tests/ -v
+pytest tests/ -v                           # Run all 223 tests
+pytest tests/test_verification.py -v       # Specific file
+pytest tests/ --cov=app --cov-report=html  # Coverage
 ```
 
-**Manual Checklist:**
-- Search, add to qB, import (single/multi-disc)
-- History view, cover loading, logs
-- Error handling (invalid paths, permissions)
-- Path mapping issues
+**Test Coverage:** Verification logic, cover caching, description fetch, search, helpers, migrations
 
 ## Important Patterns
 
@@ -350,7 +303,7 @@ except Exception:
 2. Write idempotent SQL (use IF NOT EXISTS)
 3. Runs automatically on next startup
 4. Smart routing: history table changes → history.db, covers table changes → covers.db
-5. Current migrations: 001-006 (history.db), 005,008 (covers.db), 007 (history.db)
+5. Current: 001-007 (history.db), 005,008 (covers.db)
 
 ## Common Tasks
 
@@ -363,23 +316,26 @@ except Exception:
 
 ### Add Environment Variable
 
-1. Add to env.example
-2. Add to config.py with default
-3. Add validation in validate_env.py if needed
-4. Document in README.md and this file
+1. Add to `env.example`
+2. Add to `config.py` with default
+3. Add validation in `validate_env.py` if required
+4. Document in README.md if user-facing
 
 ### Add Database Column
 
-Create `app/db/migrations/006_add_field.sql`:
+Create `app/db/migrations/009_add_field.sql`:
 ```sql
 ALTER TABLE history ADD COLUMN new_field TEXT;
 ```
+
+Restart container - migration runs automatically.
 
 ### Debug Import Issues
 
 **Path not found:** Check MEDIA_ROOT mapping, verify qB save_path matches DL_DIR
 **Permission denied:** Check PUID/PGID, verify UMASK
 **Files not copied:** Check AUDIO_EXTS filter, add logging
+**Verification fails:** Check ABS_BASE_URL reachable, verify API key, check metadata.json created
 
 ## Debugging
 
@@ -407,7 +363,7 @@ sqlite> SELECT * FROM history LIMIT 5;
 
 **Safe Usage Only:**
 - Behind VPN (Tailscale, WireGuard)
-- Behind authenticated proxy
+- Behind authenticated reverse proxy
 - Trusted local network only
 - NEVER public internet
 
@@ -426,11 +382,11 @@ sqlite> SELECT * FROM history LIMIT 5;
 2. Follow existing conventions
 3. Test thoroughly (automated + manual)
 4. Write descriptive commits ("why" not "what")
-5. Update CLAUDE.md if architecture changes
+5. Update documentation if architecture changes
 
 ### Adding Features
 1. Check if new env vars needed
-2. Update README for user-facing features
+2. Update README.md for user-facing features
 3. Sanitize all user input
 4. Provide clear error messages
 5. Test edge cases
@@ -466,5 +422,7 @@ sqlite> SELECT * FROM history LIMIT 5;
 **Maintenance:** Focus on bug fixes over features, preserve functionality, avoid over-engineering.
 
 ---
+
+**Technical Details:** See [BACKEND.md](BACKEND.md) for implementation details, [FRONTEND.md](FRONTEND.md) for UI architecture.
 
 *Update this document when making significant architecture or functionality changes.*
