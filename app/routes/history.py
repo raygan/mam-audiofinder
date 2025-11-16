@@ -35,9 +35,24 @@ def history():
     with httpx.Client(timeout=30) as client:
         try:
             qb_login_sync(client)
-        except Exception:
+        except Exception as e:
             # If qBittorrent is unreachable, return basic data without enrichment
-            return {"items": [dict(row) for row in rows]}
+            import logging
+            logger = logging.getLogger("mam-audiofinder")
+            logger.error(f"qBittorrent login failed in /history: {e}")
+
+            # Return rows with default status indicators
+            enriched_items = []
+            for row in rows:
+                item = dict(row)
+                item["qb_status"] = item.get("qb_status") or "qBittorrent Offline"
+                item["qb_status_color"] = "red"
+                item["qb_progress"] = 0.0
+                item["path_warning"] = "Cannot connect to qBittorrent to verify status"
+                item["path_valid"] = False
+                enriched_items.append(item)
+
+            return {"items": enriched_items}
 
         for row in rows:
             item = dict(row)
