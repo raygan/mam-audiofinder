@@ -80,7 +80,7 @@ def detect_format(item: dict) -> str:
     return ""
 
 
-@router.get("/showcase")
+@router.get("/api/showcase")
 async def showcase(
     query: str = Query("", description="Search query (optional, defaults to recent audiobooks)"),
     limit: int = Query(100, description="Maximum number of results to fetch", ge=1, le=500)

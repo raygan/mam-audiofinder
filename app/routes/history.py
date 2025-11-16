@@ -18,12 +18,12 @@ from torrent_helpers import (
 router = APIRouter()
 
 
-@router.get("/history")
+@router.get("/api/history")
 def history():
     """Get history of added torrents with live torrent states."""
     import logging
     logger = logging.getLogger("mam-audiofinder")
-    logger.info("[HISTORY] /history endpoint called")
+    logger.info("[HISTORY] /api/history endpoint called")
 
     # Fetch all history items
     with engine.begin() as cx:
@@ -163,7 +163,7 @@ def history():
     return {"items": items}
 
 
-@router.delete("/history/{row_id}")
+@router.delete("/api/history/{row_id}")
 def delete_history(row_id: int):
     """Delete a history entry."""
     with engine.begin() as cx:
