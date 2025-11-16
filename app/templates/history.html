@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}History - Audiobook Finder{% endblock %}
+{% block nav_history %}active{% endblock %}
+{% block page_script %}/static/pages/history.js?v=5{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h3>Download History & Imports</h3>
+    <table id="history">
+      <thead>
+        <tr>
+          <th style="width: 80px">Cover</th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Narrator</th>
+          <th class="center">Link</th>
+          <th>When</th>
+          <th>Status</th>
+          <th>Import</th>
+          <th>Remove</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+{% endblock %}

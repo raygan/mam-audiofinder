@@ -13,8 +13,26 @@ templates = Jinja2Templates(directory="templates")
 
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Serve the main UI."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    """Serve the search page (main UI)."""
+    return templates.TemplateResponse("search.html", {"request": request})
+
+
+@router.get("/history", response_class=HTMLResponse)
+async def history_page(request: Request):
+    """Serve the history page."""
+    return templates.TemplateResponse("history.html", {"request": request})
+
+
+@router.get("/showcase", response_class=HTMLResponse)
+async def showcase_page(request: Request):
+    """Serve the showcase page."""
+    return templates.TemplateResponse("showcase.html", {"request": request})
+
+
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request):
+    """Serve the logs page."""
+    return templates.TemplateResponse("logs.html", {"request": request})
 
 
 @router.get("/health")

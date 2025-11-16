@@ -9,8 +9,9 @@ import { escapeHtml, formatSize } from '../core/utils.js';
  * ShowcaseView handles the showcase grid and detail display
  */
 export class ShowcaseView {
-  constructor(elements) {
+  constructor(elements, router) {
     this.elements = elements;
+    this.router = router;
     this.bindEvents();
   }
 
@@ -72,6 +73,14 @@ export class ShowcaseView {
 
       showcaseStatus.textContent = `Showing ${data.total_groups} titles (${data.total_results} versions)`;
       this.renderGrid(data.groups);
+
+      // Update URL with search parameters (if router is available)
+      if (this.router) {
+        this.router.updateURL({
+          q: searchQuery,
+          limit: limit.toString()
+        }, true);
+      }
 
     } catch (error) {
       console.error('Error loading showcase:', error);

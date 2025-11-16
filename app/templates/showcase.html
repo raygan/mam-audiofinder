@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Showcase - Audiobook Finder{% endblock %}
+{% block nav_showcase %}active{% endblock %}
+{% block page_script %}/static/pages/showcase.js?v=5{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="showcase-header">
+      <h3>Audiobook Showcase</h3>
+      <div class="showcase-controls">
+        <input id="showcaseSearch" type="text" placeholder="Search audiobooks..." style="width: 300px">
+        <select id="showcaseLimit">
+          <option value="50">50 results</option>
+          <option value="100" selected>100 results</option>
+          <option value="200">200 results</option>
+          <option value="500">500 results</option>
+        </select>
+        <button id="showcaseSearchBtn" class="primary">🔍 Search</button>
+      </div>
+    </div>
+    <div id="showcaseStatus" class="muted" style="margin: 1rem 0;"></div>
+    <div id="showcaseGrid" class="showcase-grid"></div>
+    <div id="showcaseDetail" class="showcase-detail" style="display:none"></div>
+  </div>
+{% endblock %}
