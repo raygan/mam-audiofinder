@@ -78,8 +78,24 @@ class ShowcasePage {
         this.elements.showcaseLimit.value = state.limit;
       }
 
-      // Reload showcase data
-      await this.showcaseView.load();
+      // Handle detail view state
+      if (state.detail) {
+        // Detail parameter exists - show detail view
+        // First ensure data is loaded
+        if (this.showcaseView.currentGroups.length === 0 && state.q) {
+          await this.showcaseView.load();
+        }
+        // Then show detail
+        this.showcaseView.showDetailByIdentifier(state.detail);
+      } else {
+        // No detail parameter - close detail view if open
+        if (this.showcaseView.currentDetailGroup) {
+          this.showcaseView.closeDetail(false); // Don't update history, we're already in the right state
+        } else if (state.q) {
+          // Reload showcase data if we have a query
+          await this.showcaseView.load();
+        }
+      }
     });
   }
 
@@ -132,8 +148,22 @@ class ShowcasePage {
       this.elements.showcaseLimit.value = state.limit;
     }
 
-    // Load showcase data
-    await this.showcaseView.load();
+    // Only load showcase data if there's a query or detail parameter
+    // This prevents empty MAM searches on initial page load
+    if (state.q || state.detail) {
+      await this.showcaseView.load();
+
+      // If detail parameter exists, show detail view after loading
+      if (state.detail) {
+        // Small delay to ensure grid is rendered
+        setTimeout(() => {
+          this.showcaseView.showDetailByIdentifier(state.detail);
+        }, 100);
+      }
+    } else {
+      // Show welcome message for empty state
+      this.showcaseView.showEmptyState();
+    }
   }
 }
 
