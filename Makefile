@@ -136,6 +136,19 @@ format: ## Auto-format Python code (black + isort)
 
 ##@ Setup
 
+venv: ## Create a virtual environment (recommended for local development)
+	@if [ ! -d "venv" ]; then \
+		echo "Creating virtual environment..."; \
+		python3 -m venv venv; \
+		echo "✓ Virtual environment created at ./venv"; \
+		echo ""; \
+		echo "Activate it with:"; \
+		echo "  source venv/bin/activate  # Linux/macOS"; \
+		echo "  venv\\Scripts\\activate     # Windows"; \
+	else \
+		echo "Virtual environment already exists at ./venv"; \
+	fi
+
 install: ## Install production dependencies
 	@echo "Installing production dependencies..."
 	@$(PIP) install -r requirements.txt
@@ -143,6 +156,13 @@ install: ## Install production dependencies
 
 install-dev: ## Install development dependencies (including test tools)
 	@echo "Installing development dependencies..."
+	@if [ -z "$$VIRTUAL_ENV" ] && [ ! -f /.dockerenv ]; then \
+		echo "⚠️  WARNING: Not in a virtual environment!"; \
+		echo "   Run 'make venv' then 'source venv/bin/activate' first"; \
+		echo "   Or use '--break-system-packages' flag (not recommended)"; \
+		echo ""; \
+		echo "Attempting install anyway..."; \
+	fi
 	@$(PIP) install -r requirements-dev.txt
 	@echo "✓ Development dependencies installed"
 
