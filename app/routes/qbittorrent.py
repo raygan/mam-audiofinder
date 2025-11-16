@@ -119,22 +119,31 @@ async def add_to_qb(body: AddBody):
             if QB_SAVEPATH: form["savepath"] = QB_SAVEPATH
             r = await client.post(f"{QB_URL}/api/v2/torrents/add", data=form)
             if r.status_code == 200:
-                # ask qB for hash (by tag)
+                # ask qB for hash (by tag) - retry a few times as qB might be slow
                 if mam_id:
-                    info = await client.get(f"{QB_URL}/api/v2/torrents/info",
-                                            params={"tag": f"mamid={mam_id}", "filter": "all"})
-                    try:
-                        arr = info.json()
-                        if isinstance(arr, list) and arr:
-                            tlow = title.lower()
-                            pick = None
-                            for tor in arr:
-                                nm = (tor.get("name") or "").lower()
-                                if tlow and nm.startswith(tlow[:20]):
-                                    pick = tor; break
-                            qb_hash = (pick or arr[0]).get("hash")
-                    except Exception:
-                        pass
+                    import asyncio
+                    for attempt in range(3):
+                        # Wait a bit for qBittorrent to process the torrent
+                        if attempt > 0:
+                            await asyncio.sleep(0.5)
+
+                        info = await client.get(f"{QB_URL}/api/v2/torrents/info",
+                                                params={"tag": f"mamid={mam_id}", "filter": "all"})
+                        try:
+                            arr = info.json()
+                            if isinstance(arr, list) and arr:
+                                tlow = title.lower()
+                                pick = None
+                                for tor in arr:
+                                    nm = (tor.get("name") or "").lower()
+                                    if tlow and nm.startswith(tlow[:20]):
+                                        pick = tor; break
+                                qb_hash = (pick or arr[0]).get("hash")
+                                if qb_hash:
+                                    logger.info(f"Found hash {qb_hash} for MAM ID {mam_id} on attempt {attempt + 1}")
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch hash on attempt {attempt + 1}: {e}")
 
                 with engine.begin() as cx:
                     cx.execute(text("""
@@ -180,16 +189,31 @@ async def add_to_qb(body: AddBody):
         if r.status_code != 200:
             raise HTTPException(status_code=502, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 
-        # After upload, try to fetch hash
+        # After upload, try to fetch hash - retry a few times
         if mam_id:
-            info = await client.get(f"{QB_URL}/api/v2/torrents/info",
-                                    params={"tag": f"mamid={mam_id}", "filter": "all"})
-            try:
-                arr = info.json()
-                if isinstance(arr, list) and arr:
-                    qb_hash = arr[0].get("hash")
-            except Exception:
-                pass
+            import asyncio
+            for attempt in range(3):
+                # Wait a bit for qBittorrent to process the torrent
+                if attempt > 0:
+                    await asyncio.sleep(0.5)
+
+                info = await client.get(f"{QB_URL}/api/v2/torrents/info",
+                                        params={"tag": f"mamid={mam_id}", "filter": "all"})
+                try:
+                    arr = info.json()
+                    if isinstance(arr, list) and arr:
+                        tlow = title.lower()
+                        pick = None
+                        for tor in arr:
+                            nm = (tor.get("name") or "").lower()
+                            if tlow and nm.startswith(tlow[:20]):
+                                pick = tor; break
+                        qb_hash = (pick or arr[0]).get("hash")
+                        if qb_hash:
+                            logger.info(f"Found hash {qb_hash} for MAM ID {mam_id} on attempt {attempt + 1} (upload path)")
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to fetch hash on attempt {attempt + 1} (upload path): {e}")
 
         with engine.begin() as cx:
             cx.execute(text("""

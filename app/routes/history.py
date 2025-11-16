@@ -10,7 +10,9 @@ from qb_client import qb_login_sync
 from torrent_helpers import (
     get_torrent_state,
     map_qb_state_to_display,
-    validate_torrent_path
+    validate_torrent_path,
+    extract_mam_id_from_tags,
+    match_torrent_to_history
 )
 
 router = APIRouter()
@@ -58,9 +60,33 @@ def history():
 
             return {"items": enriched_items}
 
+        # Fetch ALL torrents once for matching
+        logger.info("[HISTORY] Fetching all torrents from qBittorrent for matching")
+        try:
+            from config import QB_URL
+            torrents_resp = client.get(f"{QB_URL}/api/v2/torrents/info", params={"filter": "all"})
+            all_torrents = []
+            if torrents_resp.status_code == 200:
+                qb_torrents = torrents_resp.json()
+                if isinstance(qb_torrents, list):
+                    # Extract mam_id from tags for each torrent
+                    for t in qb_torrents:
+                        torrent_data = {
+                            "hash": t.get("hash"),
+                            "name": t.get("name"),
+                            "tags": t.get("tags", ""),
+                            "mam_id": extract_mam_id_from_tags(t.get("tags", ""))
+                        }
+                        all_torrents.append(torrent_data)
+                    logger.info(f"[HISTORY] Fetched {len(all_torrents)} torrents from qBittorrent")
+        except Exception as e:
+            logger.error(f"[HISTORY] Failed to fetch torrent list: {e}")
+            all_torrents = []
+
         for row in rows:
             item = dict(row)
             qb_hash = item.get("qb_hash")
+            hash_updated = False
 
             # Default values
             item["qb_status_color"] = "grey"
@@ -68,8 +94,31 @@ def history():
             item["path_warning"] = None
             item["path_valid"] = True
 
+            # If no hash, try to find matching torrent
+            if not qb_hash and all_torrents:
+                logger.info(f"[HISTORY] No hash for '{item.get('title')}', attempting fallback match")
+                matched_torrent = match_torrent_to_history(item, all_torrents)
+                if matched_torrent:
+                    qb_hash = matched_torrent.get("hash")
+                    logger.info(f"[HISTORY] Matched by {'MAM ID' if matched_torrent.get('mam_id') else 'title'}: {qb_hash}")
+
+                    # Update database with found hash for future lookups
+                    try:
+                        with engine.begin() as cx:
+                            cx.execute(text("""
+                                UPDATE history
+                                SET qb_hash = :qb_hash
+                                WHERE id = :id
+                            """), {"qb_hash": qb_hash, "id": item.get("id")})
+                        logger.info(f"[HISTORY] Updated database with hash for item {item.get('id')}")
+                        hash_updated = True
+                    except Exception as e:
+                        logger.error(f"[HISTORY] Failed to update hash in database: {e}")
+                else:
+                    logger.info(f"[HISTORY] No matching torrent found for '{item.get('title')}'")
+
             if qb_hash:
-                logger.info(f"[HISTORY] Processing item with hash: {qb_hash}, title: {item.get('title')}")
+                logger.info(f"[HISTORY] Processing item with hash: {qb_hash}, title: {item.get('title')}{' (newly matched)' if hash_updated else ''}")
                 # Fetch live state
                 torrent_state = get_torrent_state(qb_hash, client)
                 logger.info(f"[HISTORY] Torrent state for {qb_hash}: {torrent_state}")
@@ -103,7 +152,7 @@ def history():
                     item["qb_status"] = "Not Found"
                     item["qb_status_color"] = "grey"
             else:
-                logger.info(f"[HISTORY] Item has no qb_hash: {item.get('title')}")
+                logger.info(f"[HISTORY] No hash available for: {item.get('title')}")
 
             items.append(item)
 
