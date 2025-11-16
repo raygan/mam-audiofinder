@@ -188,9 +188,15 @@ class AudiobookshelfClient:
             logger.error(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}")
             return {}
 
-    async def verify_import(self, title: str, author: str = "", library_path: str = "") -> dict:
+    async def verify_import(self, title: str, author: str = "", library_path: str = "", metadata: dict = None) -> dict:
         """
         Verify that an imported item exists in Audiobookshelf library.
+
+        Args:
+            title: Book title (from torrent or metadata.json)
+            author: Author name (from torrent or metadata.json)
+            library_path: Path where book was imported
+            metadata: Optional dict from metadata.json with enhanced matching data
 
         Returns dict with:
             - status: 'verified', 'mismatch', 'not_found', 'unreachable', or 'not_configured'
@@ -268,13 +274,24 @@ class AudiobookshelfClient:
                     title_lower = title.lower().strip()
                     author_lower = author.lower().strip() if author else ""
 
+                    # Enhanced matching with metadata.json
+                    metadata_authors = []
+                    metadata_asin = None
+                    metadata_isbn = None
+                    if metadata:
+                        metadata_authors = [a.lower().strip() for a in metadata.get("authors", []) if a]
+                        metadata_asin = metadata.get("asin", "")
+                        metadata_isbn = metadata.get("isbn", "")
+
                     best_match = None
                     best_match_score = 0
 
                     for item in results:
-                        metadata = item.get("media", {}).get("metadata", {})
-                        item_title = (metadata.get("title") or "").lower().strip()
-                        item_author = (metadata.get("authorName") or "").lower().strip()
+                        item_metadata = item.get("media", {}).get("metadata", {})
+                        item_title = (item_metadata.get("title") or "").lower().strip()
+                        item_author = (item_metadata.get("authorName") or "").lower().strip()
+                        item_asin = (item_metadata.get("asin") or "").lower().strip()
+                        item_isbn = (item_metadata.get("isbn") or "").lower().strip()
                         item_id = item.get("id")
                         item_path = item.get("path", "")
 
@@ -283,43 +300,67 @@ class AudiobookshelfClient:
                         title_match = False
                         author_match = False
 
-                        # Exact title match
-                        if item_title == title_lower:
-                            score += 100
+                        # ASIN/ISBN matching (highest priority - exact identifier match)
+                        if metadata_asin and item_asin and metadata_asin.lower() == item_asin:
+                            score += 200  # Very high score for ASIN match
                             title_match = True
-                        # Title contains or is contained
-                        elif title_lower in item_title or item_title in title_lower:
-                            score += 50
-                            title_match = True
-
-                        # Author matching (if provided)
-                        if author_lower:
-                            if item_author == author_lower:
-                                score += 50
-                                author_match = True
-                            elif author_lower in item_author or item_author in author_lower:
-                                score += 25
-                                author_match = True
-                        else:
-                            # No author to verify, count as match
                             author_match = True
-                            score += 10
+                            logger.info(f"🎯 ASIN match found: {metadata_asin}")
+                        elif metadata_isbn and item_isbn and metadata_isbn.lower() == item_isbn:
+                            score += 200  # Very high score for ISBN match
+                            title_match = True
+                            author_match = True
+                            logger.info(f"🎯 ISBN match found: {metadata_isbn}")
+                        else:
+                            # Exact title match
+                            if item_title == title_lower:
+                                score += 100
+                                title_match = True
+                            # Title contains or is contained
+                            elif title_lower in item_title or item_title in title_lower:
+                                score += 50
+                                title_match = True
 
-                        # Path matching (if provided)
-                        if library_path and item_path:
-                            # Normalize paths for comparison
-                            lib_path_norm = library_path.lower().replace("\\", "/").strip("/")
-                            item_path_norm = item_path.lower().replace("\\", "/").strip("/")
-                            if lib_path_norm in item_path_norm or item_path_norm in lib_path_norm:
-                                score += 25
+                            # Author matching with metadata.json support
+                            if metadata_authors:
+                                # Check if any metadata author matches item author
+                                for meta_author in metadata_authors:
+                                    if meta_author == item_author:
+                                        score += 50
+                                        author_match = True
+                                        break
+                                    elif meta_author in item_author or item_author in meta_author:
+                                        score += 25
+                                        author_match = True
+                                        break
+                            elif author_lower:
+                                # Fallback to simple author matching
+                                if item_author == author_lower:
+                                    score += 50
+                                    author_match = True
+                                elif author_lower in item_author or item_author in author_lower:
+                                    score += 25
+                                    author_match = True
+                            else:
+                                # No author to verify, count as match
+                                author_match = True
+                                score += 10
+
+                            # Path matching (if provided)
+                            if library_path and item_path:
+                                # Normalize paths for comparison
+                                lib_path_norm = library_path.lower().replace("\\", "/").strip("/")
+                                item_path_norm = item_path.lower().replace("\\", "/").strip("/")
+                                if lib_path_norm in item_path_norm or item_path_norm in lib_path_norm:
+                                    score += 25
 
                         # Update best match if this is better
                         if score > best_match_score and title_match:
                             best_match_score = score
                             best_match = {
                                 "item_id": item_id,
-                                "title": metadata.get("title"),
-                                "author": metadata.get("authorName"),
+                                "title": item_metadata.get("title"),
+                                "author": item_metadata.get("authorName"),
                                 "path": item_path,
                                 "title_match": title_match,
                                 "author_match": author_match,
@@ -335,8 +376,25 @@ class AudiobookshelfClient:
                             "abs_item_id": None
                         }
 
-                    # Check for mismatches
-                    if best_match_score < 100:  # Less than perfect match
+                    # Check for mismatches - adjusted thresholds for ASIN/ISBN matches
+                    if best_match_score >= 200:
+                        # ASIN/ISBN match - highest confidence
+                        logger.info(f"✅ Import verified in ABS via ASIN/ISBN: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
+                        return {
+                            "status": "verified",
+                            "note": f"ASIN/ISBN match: '{best_match['title']}' by '{best_match['author']}'",
+                            "abs_item_id": best_match["item_id"]
+                        }
+                    elif best_match_score >= 100:
+                        # Perfect title + author match
+                        logger.info(f"✅ Import verified in ABS: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
+                        return {
+                            "status": "verified",
+                            "note": f"Found in library: '{best_match['title']}' by '{best_match['author']}'",
+                            "abs_item_id": best_match["item_id"]
+                        }
+                    else:
+                        # Partial match - report as mismatch with details
                         if not best_match["author_match"] and author:
                             note = f"Author mismatch: expected '{author}' found '{best_match['author']}'"
                         elif best_match_score < 50:
@@ -350,14 +408,6 @@ class AudiobookshelfClient:
                             "note": note,
                             "abs_item_id": best_match["item_id"]
                         }
-
-                    # Verified!
-                    logger.info(f"✅ Import verified in ABS: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
-                    return {
-                        "status": "verified",
-                        "note": f"Found in library: '{best_match['title']}' by '{best_match['author']}'",
-                        "abs_item_id": best_match["item_id"]
-                    }
 
             except httpx.TimeoutException as e:
                 logger.error(f"⏱️  ABS verification timeout (attempt {attempt}/{max_attempts}): {e}")

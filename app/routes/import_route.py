@@ -1,6 +1,7 @@
 """
 Import routes for MAM Audiobook Finder.
 """
+import json
 import logging
 import shutil
 import httpx
@@ -41,6 +42,47 @@ def copy_one(src: Path, dst: Path) -> str:
     else:  # copy
         shutil.copy2(src, dst)
         return "copied"
+
+
+def read_metadata_json(directory: Path) -> dict:
+    """
+    Read metadata.json from the imported directory.
+    Returns dict with title, authors, narrators, series, etc. or empty dict if not found.
+    """
+    metadata_path = directory / "metadata.json"
+
+    if not metadata_path.exists():
+        logger.info(f"No metadata.json found in {directory}")
+        return {}
+
+    try:
+        logger.info(f"📖 Reading metadata.json from {metadata_path}")
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+
+        # Extract relevant fields
+        result = {
+            "title": metadata.get("title", ""),
+            "subtitle": metadata.get("subtitle", ""),
+            "authors": metadata.get("authors", []),  # List of author names
+            "narrators": metadata.get("narrators", []),  # List of narrator names
+            "series": metadata.get("series", []),  # List like ["Series Name #1"]
+            "publisher": metadata.get("publisher", ""),
+            "description": metadata.get("description", ""),
+            "asin": metadata.get("asin", ""),
+            "isbn": metadata.get("isbn", ""),
+            "publishedYear": metadata.get("publishedYear", ""),
+        }
+
+        logger.info(f"📚 Metadata found: title='{result['title']}', authors={result['authors']}, narrators={result['narrators']}")
+        return result
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"⚠️  Failed to parse metadata.json: {e}")
+        return {}
+    except Exception as e:
+        logger.warning(f"⚠️  Error reading metadata.json: {e}")
+        return {}
 
 
 class ImportBody(BaseModel):
@@ -259,15 +301,27 @@ async def do_import(body: ImportBody):
                 {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
             )
 
+    # --- Read metadata.json if available ---
+    metadata = read_metadata_json(dest_dir)
+
     # --- Verify import in Audiobookshelf ---
     # Don't fail the import if verification fails, just log it
     verification_result = None
     try:
-        logger.info(f"🔍 Starting ABS verification for '{title}' by '{author}'")
+        # Use metadata.json if available, otherwise use torrent metadata
+        verify_title = metadata.get("title", title) if metadata else title
+        verify_authors = metadata.get("authors", [author]) if metadata else [author]
+        verify_author = ", ".join(verify_authors) if verify_authors else author
+
+        logger.info(f"🔍 Starting ABS verification for '{verify_title}' by '{verify_author}'")
+        if metadata:
+            logger.info(f"📖 Using metadata.json for verification (more accurate)")
+
         verification_result = await abs_client.verify_import(
-            title=title,
-            author=author,
-            library_path=str(dest_dir)
+            title=verify_title,
+            author=verify_author,
+            library_path=str(dest_dir),
+            metadata=metadata  # Pass full metadata for enhanced matching
         )
 
         # Update database with verification results
