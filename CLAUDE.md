@@ -91,10 +91,18 @@ mam-audiofinder/
 │       ├── showcase.html      # Showcase page template
 │       ├── logs.html          # Logs page template
 │       └── index.html         # Legacy single-page template (deprecated)
+├── tests/                     # Test suite (pytest)
+│   ├── __init__.py           # Test package marker
+│   ├── conftest.py           # Pytest fixtures and configuration
+│   ├── test_search.py        # Search functionality tests
+│   ├── test_covers.py        # Cover caching tests
+│   ├── test_verification.py  # ABS verification tests
+│   └── test_helpers.py       # Utility function tests
 ├── validate_env.py            # Startup validation script
 ├── Dockerfile                 # Container image definition
 ├── docker-compose.yml         # Service orchestration
 ├── requirements.txt           # Python dependencies
+├── requirements-dev.txt       # Development/testing dependencies
 ├── env.example               # Environment template
 ├── README.md                 # User documentation
 └── .gitignore               # Git ignore rules
@@ -696,13 +704,78 @@ messages to help users debug path mapping issues."
 
 ### Testing Changes
 
-**Manual Testing Checklist:**
+#### Automated Testing Framework
+
+**Test Suite Structure:**
+```
+tests/
+├── __init__.py              # Package marker
+├── conftest.py              # Pytest configuration and fixtures (~270 lines)
+├── test_search.py           # MAM search and flattening tests (~400 lines)
+├── test_covers.py           # Cover caching and management tests (~450 lines)
+├── test_verification.py     # ABS verification logic tests (~370 lines)
+└── test_helpers.py          # Utility function tests (~340 lines)
+```
+
+**Running Tests:**
+```bash
+# Install test dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_search.py -v
+
+# Run with coverage report
+pytest tests/ --cov=app --cov-report=html
+
+# Run only fast tests (exclude slow integration tests)
+pytest tests/ -m "not slow"
+```
+
+**Test Coverage:**
+- **120 test cases** covering critical functionality
+- Search payload construction and MAM response parsing
+- Cover caching, download, cleanup, and healing
+- ABS verification matching logic and retry mechanisms
+- Utility functions (sanitize, path manipulation, disc extraction, hardlink)
+- Mock-based testing for external APIs (MAM, qBittorrent, ABS)
+
+**Key Testing Patterns:**
+- **Fixtures:** Shared test data and mocks in conftest.py
+- **Async Testing:** pytest-asyncio for async endpoint testing
+- **Mocking:** Mock external HTTP calls to avoid dependencies
+- **Temp Dirs:** Isolated filesystem tests using pytest temp_dir fixture
+- **Database:** In-memory SQLite for database tests
+
+**Example Test Execution:**
+```bash
+# Example output
+============================= test session starts ==============================
+collected 120 items
+
+tests/test_covers.py::TestCoverServiceInit::test_init_creates_covers_directory PASSED
+tests/test_covers.py::TestCoverDirectorySize::test_get_covers_dir_size_empty PASSED
+...
+tests/test_verification.py::TestVerifyImport::test_verify_import_exact_match PASSED
+tests/test_verification.py::TestConnectionTest::test_connection_success PASSED
+
+============================= 120 passed in 1.26s ===============================
+```
+
+#### Manual Testing Checklist
+
+**Functional Testing:**
 1. Search functionality (various queries)
 2. Add to qBittorrent (check category, tags)
 3. Import workflow (single-file and multi-disc)
 4. History view (add, import, remove)
 5. Error handling (invalid paths, missing files)
 6. UI responsiveness (mobile/desktop)
+7. Cover caching and progressive loading
+8. ABS import verification
 
 **Common Test Scenarios:**
 - Single-file torrent import
@@ -710,6 +783,8 @@ messages to help users debug path mapping issues."
 - Multi-disc audiobook with FLATTEN_DISCS=false
 - Path mapping issues (qBittorrent vs container paths)
 - Permission errors (PUID/PGID mismatch)
+- Cover cache cleanup when exceeding MAX_COVERS_SIZE_MB
+- ABS verification with matching/mismatching items
 
 ## Environment Configuration
 
@@ -906,7 +981,21 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Multi-Page Architecture Refactor** (2025-11-16)
+1. **Testing Infrastructure Implementation** (2025-11-16)
+   - Created comprehensive test suite with pytest framework
+   - **120 test cases** covering critical functionality (~1,830 lines of test code)
+   - Test modules: search (400 lines), covers (450 lines), verification (370 lines), helpers (340 lines)
+   - Pytest configuration with fixtures for databases, HTTP mocks, and temp directories (~270 lines)
+   - Mock-based testing for external APIs (MAM, qBittorrent, Audiobookshelf)
+   - In-memory SQLite databases for isolated database testing
+   - Async test support with pytest-asyncio
+   - Added requirements-dev.txt with testing dependencies
+   - All tests passing with 1.26s execution time
+   - Improved code quality and regression prevention
+   - Test coverage for search, covers, verification, and utility functions
+   - Documentation added to CLAUDE.md with usage examples
+
+2. **Multi-Page Architecture Refactor** (2025-11-16)
    - Converted from single-page application to multi-page architecture
    - Separate pages for Search (/), History (/history), Showcase (/showcase), and Logs (/logs)
    - **Jinja2 template inheritance** with base.html providing shared layout
