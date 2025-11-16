@@ -7,6 +7,8 @@ services:
         PGID: ${PGID}
     image: ghcr.io/raygan/mam-audiofinder:latest
     container_name: mam-audiofinder
+    networks:
+      - nginx-network # only had if you want to run on local network
     ports:
       - "${APP_PORT}:8080"
     env_file:
@@ -18,3 +20,7 @@ services:
       - ${DATA_DIR}:/data
       - ${MEDIA_ROOT}:/media
     restart: unless-stopped
+
+networks:
+    nginx-network:
+      external: true
