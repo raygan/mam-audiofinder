@@ -200,7 +200,7 @@ Remaining:
 *Establish testing framework for critical functionality*
 
 ### Test Framework Setup
-- [ ] **Create tests/ package structure**:
+- [x] **Create tests/ package structure**:
   ```
   tests/
   ├── __init__.py
@@ -212,26 +212,26 @@ Remaining:
   ```
 
 ### Core Test Coverage
-- [ ] **Implement search tests** in `test_search.py`:
+- [x] **Implement search tests** in `test_search.py`:
   - Test search payload construction with various parameter combinations
   - Verify proper MAM cookie handling
   - Test response parsing and flattening logic
   - Mock httpx calls to avoid actual MAM API requests
 
-- [ ] **Implement cover tests** in `test_covers.py`:
+- [x] **Implement cover tests** in `test_covers.py`:
   - Test cache hit/miss scenarios
   - Verify automatic cleanup when exceeding MAX_COVERS_SIZE_MB
   - Test concurrent cover fetches with connection pooling
   - Mock ABS API responses for predictable testing
 
-- [ ] **Implement verification tests** in `test_verification.py`:
+- [x] **Implement verification tests** in `test_verification.py`:
   - Test successful verification scenarios
   - Test mismatch detection logic
   - Test resilience when ABS is unreachable
   - Verify database updates occur correctly
 
 ### Test Execution
-- [ ] **Add test commands to documentation**:
+- [x] **Add test commands to documentation**:
   - Document pytest installation in requirements-dev.txt
   - Add test execution instructions to CLAUDE.md
   - Create GitHub Actions workflow for automated testing (optional)
