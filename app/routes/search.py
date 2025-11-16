@@ -5,12 +5,14 @@ import json
 import re
 import asyncio
 import logging
+import random
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from config import MAM_BASE, MAM_COOKIE, ABS_BASE_URL, ABS_API_KEY, ABS_CHECK_LIBRARY
 from abs_client import abs_client
+from mam_cache import get_cached_mam_search, cache_mam_search
 
 router = APIRouter()
 logger = logging.getLogger("mam-audiofinder")
@@ -58,7 +60,7 @@ def detect_format(item: dict) -> str:
 
 @router.post("/search")
 async def search(payload: dict):
-    """Search MAM for audiobooks."""
+    """Search MAM for audiobooks with 5-minute caching."""
     if not MAM_COOKIE:
         raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
 
@@ -71,6 +73,16 @@ async def search(payload: dict):
     tor.setdefault("main_cat", ["13"])  # Audiobooks
 
     perpage = payload.get("perpage", 25)
+    query_text = tor.get("text", "")
+    sort_type = tor.get("sortType", "default")
+
+    # Check cache first
+    cached = get_cached_mam_search(query_text, perpage, sort_type)
+    if cached:
+        logger.info(f"✅ Cache HIT for query='{query_text}', limit={perpage}")
+        return cached
+
+    logger.info(f"❌ Cache MISS for query='{query_text}', limit={perpage} - fetching from MAM")
     body = {"tor": tor, "perpage": perpage}
 
     headers = {
@@ -137,11 +149,16 @@ async def search(payload: dict):
     # Covers are fetched progressively via the /api/covers/fetch endpoint.
     logger.info(f"✅ Returning {len(out)} search results (covers will load progressively)")
 
-    return JSONResponse({
+    response_data = {
         "results": out,
         "total": raw.get("total"),
         "total_found": raw.get("total_found"),
-    })
+    }
+
+    # Cache the result for 5 minutes
+    cache_mam_search(query_text, perpage, response_data, sort_type)
+
+    return JSONResponse(response_data)
 
 
 @router.get("/api/covers/fetch")
@@ -171,14 +188,16 @@ async def fetch_cover(
             "error": "No title provided"
         })
 
-    # Retry logic with exponential backoff
+    # Retry logic with exponential backoff and jitter
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             if attempt > 0:
-                # Exponential backoff: 0.5s, 1s, 2s, etc.
-                wait_time = 0.5 * (2 ** (attempt - 1))
-                logger.info(f"🔄 Retry {attempt}/{max_retries} for '{title}' after {wait_time}s...")
+                # Exponential backoff with jitter: base delay * 2^(attempt-1) + random jitter
+                base_delay = 0.5 * (2 ** (attempt - 1))
+                jitter = random.random() * (base_delay * 0.5)
+                wait_time = base_delay + jitter
+                logger.info(f"🔄 Retry {attempt}/{max_retries} for '{title}' after {wait_time:.2f}s...")
                 await asyncio.sleep(wait_time)
 
             result = await abs_client.fetch_cover(title, author, mam_id)
