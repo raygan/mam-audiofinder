@@ -13,6 +13,8 @@ export class HistoryView {
   constructor(elements) {
     this.elements = elements;
     this.importForms = new Map();
+    this.refreshInterval = null;
+    this.isActive = false;
 
     // Listen for torrent additions and import completions
     window.addEventListener('torrentAdded', () => {
@@ -21,6 +23,15 @@ export class HistoryView {
 
     window.addEventListener('importCompleted', (e) => {
       this.handleImportCompleted(e.detail.historyId);
+    });
+
+    // Listen for view changes to start/stop auto-refresh
+    window.addEventListener('routerViewChange', (e) => {
+      if (e.detail.view === 'history') {
+        this.startAutoRefresh();
+      } else {
+        this.stopAutoRefresh();
+      }
     });
   }
 
@@ -206,6 +217,35 @@ export class HistoryView {
         }
         break;
       }
+    }
+  }
+
+  /**
+   * Start auto-refreshing the history view to show live torrent states
+   */
+  startAutoRefresh() {
+    this.isActive = true;
+
+    // Clear any existing interval
+    this.stopAutoRefresh();
+
+    // Refresh every 5 seconds to show live download progress
+    this.refreshInterval = setInterval(() => {
+      if (this.isActive) {
+        this.load();
+      }
+    }, 5000);
+  }
+
+  /**
+   * Stop auto-refreshing when view is not active
+   */
+  stopAutoRefresh() {
+    this.isActive = false;
+
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
     }
   }
 }
