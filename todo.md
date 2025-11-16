@@ -101,6 +101,7 @@ Remaining:
 - [ ] cache mam request for a 5 minutes so that pressing the back button does not result in another mam call. make this a helper which aplies across all searches
 - [x] add in book title urls when clicking on a book in showcase view
 - [x] prevent showcase from sending an empty query to mam when first clicked
+- [ ] (when others are tested working) extract card_helper from showcase titles for card use in other pages
 ---
 # MAM Audiobook Finder - Refined Todo List
 
