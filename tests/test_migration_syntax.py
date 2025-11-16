@@ -26,8 +26,10 @@ def test_history_migration():
     """)
     conn.commit()
 
-    # Read and execute migration
-    migration_file = Path('/home/user/mam-audiofinder/app/db/migrations/007_add_abs_description_history.sql')
+    # Read and execute migration - compute path relative to this file
+    test_dir = Path(__file__).parent
+    project_root = test_dir.parent
+    migration_file = project_root / 'app' / 'db' / 'migrations' / '007_add_abs_description_history.sql'
     sql = migration_file.read_text()
 
     # Split into statements like the migration system does
@@ -81,8 +83,10 @@ def test_covers_migration():
     """)
     conn.commit()
 
-    # Read and execute migration
-    migration_file = Path('/home/user/mam-audiofinder/app/db/migrations/008_add_abs_description_covers.sql')
+    # Read and execute migration - compute path relative to this file
+    test_dir = Path(__file__).parent
+    project_root = test_dir.parent
+    migration_file = project_root / 'app' / 'db' / 'migrations' / '008_add_abs_description_covers.sql'
     sql = migration_file.read_text()
 
     # Split into statements like the migration system does
