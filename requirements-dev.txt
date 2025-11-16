@@ -23,6 +23,7 @@ selenium==4.15.2             # Browser automation
 pytest-selenium==4.0.1       # Pytest integration for Selenium
 pytest-html==4.1.1           # HTML test reports
 webdriver-manager==4.0.1     # Automatic WebDriver management
+py==1.11.0                   # Required by pytest-selenium for py.xml (legacy dependency)
 
 # Include production dependencies
 -r requirements.txt
