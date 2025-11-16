@@ -99,13 +99,13 @@ Remaining:
 *Verify that imports successfully appear in Audiobookshelf after completion*
 
 ### Database Schema Updates
-- [ ] **Create migration 006_add_abs_verification.sql** in `app/db/migrations/`
+- [x] **Create migration 006_add_abs_verification.sql** in `app/db/migrations/`
   - Add `abs_verify_status` column (TEXT) to history table - stores 'verified', 'mismatch', 'pending', or 'unreachable'
   - Add `abs_verify_note` column (TEXT) to history table - stores diagnostic messages like "Title mismatch: expected 'X' found 'Y'" or "Not found in library"
   - Migration should target history.db and use ALTER TABLE statements with proper NULL defaults
 
 ### ABS Verification Client Implementation
-- [ ] **Extend AudiobookshelfClient class** in `app/abs_client.py` with verification methods:
+- [x] **Extend AudiobookshelfClient class** in `app/abs_client.py` with verification methods:
   - Add `verify_import(title: str, author: str, library_path: str) -> dict` method
   - Review `abs-api-agents.md` line references for `/api/items` endpoint (source/includes/_items.md:3) to understand query parameters and response schema
   - Method should search ABS library using title/author, checking if item exists at expected path
@@ -113,7 +113,7 @@ Remaining:
   - Handle connection failures gracefully, returning status='unreachable' without breaking import flow
 
 ### Import Route Integration
-- [ ] **Update import endpoint** in `app/routes/import_route.py`:
+- [x] **Update import endpoint** in `app/routes/import_route.py`:
   - After successful file copy/link operations, instantiate AudiobookshelfClient
   - Call `verify_import()` with sanitized title, author, and destination path
   - Store verification results in database using UPDATE query on history table
@@ -121,7 +121,7 @@ Remaining:
   - Ensure verification failures don't rollback successful imports (wrap in try/except)
 
 ### Frontend Verification Display
-- [ ] **Enhance history view** in `app/static/js/views/historyView.js`:
+- [x] **Enhance history view** in `app/static/js/views/historyView.js`:
   - Update history API response in `routes/history.py` to include `abs_verify_status` and `abs_verify_note` fields
   - Add visual indicators to history table based on verification status:
     - Green checkmark badge (✓) for 'verified' status
@@ -130,7 +130,7 @@ Remaining:
   - Position badges consistently with existing status indicators
 
 ### Resilience & Testing
-- [ ] **Add verification resilience**:
+- [x] **Add verification resilience**:
   - Implement retry logic with exponential backoff (max 3 attempts) in verification client
   - Add `ABS_VERIFY_TIMEOUT` env variable (default 10 seconds) to config.py
   - Mock ABS responses in development when `ABS_URL` is not configured
