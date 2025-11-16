@@ -72,9 +72,25 @@ export const api = {
    * @returns {Promise<{items: Array}>}
    */
   async getHistory() {
-    const r = await fetch('/history');
+    const r = await fetch('/history', {
+      cache: 'no-cache',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache'
+      }
+    });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r.json();
+    const data = await r.json();
+    console.log('[API] History response:', data.items?.length || 0, 'items');
+    if (data.items?.length > 0) {
+      console.log('[API] Sample item status:', {
+        title: data.items[0].title,
+        qb_status: data.items[0].qb_status,
+        qb_status_color: data.items[0].qb_status_color,
+        qb_hash: data.items[0].qb_hash
+      });
+    }
+    return data;
   },
 
   /**
