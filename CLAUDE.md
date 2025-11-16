@@ -21,9 +21,10 @@
 - **Templates:** Jinja2
 
 ### Frontend
-- **Vanilla JavaScript** (no frameworks)
+- **Vanilla JavaScript** with ES6 modules (no frameworks)
 - **HTML5** with minimal CSS
 - **Single-page application** pattern
+- **Modular architecture** - Organized into core, services, views, and components
 
 ### Infrastructure
 - **Docker** (containerization)
@@ -60,7 +61,21 @@ mam-audiofinder/
 │   │   ├── covers_route.py    # Cover serving endpoint
 │   │   └── logs_route.py      # Logs viewing endpoint
 │   ├── static/
-│   │   ├── app.js             # Frontend JavaScript
+│   │   ├── app.js             # Frontend entry point (ES6 modules)
+│   │   ├── js/                # Modular JavaScript architecture
+│   │   │   ├── core/          # Core infrastructure
+│   │   │   │   ├── api.js     # API client
+│   │   │   │   ├── router.js  # URL routing and navigation
+│   │   │   │   └── utils.js   # Utility functions
+│   │   │   ├── services/      # Shared services
+│   │   │   │   └── coverLoader.js # Cover lazy loading service
+│   │   │   ├── views/         # View modules
+│   │   │   │   ├── searchView.js   # Search functionality
+│   │   │   │   ├── historyView.js  # History and imports
+│   │   │   │   ├── showcaseView.js # Showcase grid/detail
+│   │   │   │   └── logsView.js     # Logs viewer
+│   │   │   └── components/    # Reusable components
+│   │   │       └── importForm.js   # Import workflow
 │   │   ├── css/               # Stylesheets (dark theme)
 │   │   ├── favicon*.png       # Icons
 │   │   └── screenshots/       # README images
@@ -348,58 +363,126 @@ Import form now includes:
 4. Store metadata in covers database
 5. Return local URL (`/covers/{filename}`) or remote URL
 
-### `/app/static/app.js` (~1065 lines)
+### Frontend Architecture - Modular JavaScript (ES6)
 
-**Frontend Logic:**
+**Overview:** The frontend has been refactored from a monolithic 1,448-line `app.js` into a clean modular architecture totaling ~2,400 lines across focused modules.
 
-#### Key Functions
+#### `/app/static/app.js` (~240 lines)
 
-**`runSearch()`**
-- Collects form inputs
-- POSTs to `/search`
-- Renders results table with progressive cover loading
-- Handles Add button functionality
+**Main Application Entry Point:**
+- `App` class that orchestrates all view modules
+- DOM element collection and initialization
+- View instantiation with dependency injection
+- Navigation handler setup (search, history, showcase, logs)
+- Router event handling for browser back/forward
+- Health check integration with visual indicator
+- URL state restoration on page load
+- Uses ES6 `type="module"` for native browser module loading
 
-**`loadHistory()`**
-- Fetches `/history`
-- Renders history table with torrent state tracking
-- Creates expandable import forms
-- Handles Import and Remove buttons
-- Shows live torrent progress indicators
+#### `/app/static/js/core/` - Core Infrastructure (~371 lines)
 
-**`showView(viewName)`**
-- Manages view switching between search, history, and logs
-- Updates active navigation button highlighting
-- Shows/hides appropriate cards
-- Handles smooth scrolling to active view
+**`api.js` (~180 lines):**
+- Centralized API client for all backend endpoints
+- 11 methods covering: health, config, search, addTorrent, getHistory, deleteHistoryItem, getCompletedTorrents, getTorrentTree, importTorrent, getLogs, fetchCover, getShowcase
+- Cache-busting headers for live data (no-cache)
+- Consistent error handling with detailed messages
+- JSDoc documentation for all methods
 
-**`loadLogs()`**
-- Fetches `/api/logs` with filtering parameters
-- Displays application logs with syntax highlighting
-- Supports filtering by log level (INFO, WARNING, ERROR)
-- Configurable line count (50-1000 lines)
-- Auto-scroll option for latest logs
+**`router.js` (~130 lines):**
+- Router class for URL state and navigation management
+- `getStateFromURL()` - Parse URL query parameters
+- `updateURL()` - Update browser history with new state
+- `getCurrentState()` - Extract current UI state
+- `handlePopState()` - Browser back/forward navigation
+- `navigateTo()` - Programmatic view switching
+- `showView()` - Show/hide view cards with smooth scrolling
+- Custom events: `routerStateChange`, `routerViewChange`
 
-**`escapeHtml(s)`**
-- Prevents XSS by escaping HTML characters
+**`utils.js` (~30 lines):**
+- `escapeHtml()` - XSS protection for user input
+- `formatSize()` - Human-readable file sizes (B, KB, MB, GB, TB)
+- Pure utility functions with no side effects
 
-**`formatSize(sz)`**
-- Converts bytes to human-readable format (KB, MB, GB)
+#### `/app/static/js/services/` - Shared Services (~180 lines)
 
-#### URL State Management
-- Push/replace state using browser History API
-- Parse query parameters on load to restore search state
-- Support shareable URLs with search terms, filters, and active view
-- URL parameter `?view=history` or `?view=logs` restores specific view
-- Back/forward navigation properly switches between all views
+**`coverLoader.js` (~180 lines):**
+- CoverLoader service for lazy-loading cover images
+- IntersectionObserver integration for progressive loading
+- Row state management for tracking cover metadata
+- `init()` - Initialize observer with 50px margin
+- `observe(element)` - Observe element for lazy loading
+- `fetchCoverForItem()` - Fetch and render cover with error handling
+- `createCoverContainer()` - Create skeleton placeholders
+- Prevents duplicate fetches by unobserving after trigger
 
-#### Import Form Logic
-- Dynamically loads completed torrents from `/qb/torrents`
-- Allows editing author/title before import
-- Tree view for file structure preview
-- Flatten checkbox with auto-detection for multi-disc audiobooks
-- Shows import statistics (files copied/linked/moved)
-- Updates UI status after successful import
+#### `/app/static/js/views/` - View Modules (~1,220 lines)
+
+**`searchView.js` (~230 lines):**
+- Search form submission and execution
+- Results rendering with lazy-loaded covers
+- Add to qBittorrent functionality
+- URL state management integration
+- Emits `torrentAdded` event for cross-view communication
+
+**`historyView.js` (~180 lines):**
+- History table rendering with live torrent states
+- Empty state handling
+- Import button with expandable forms
+- Remove item functionality
+- Listens for `torrentAdded` and `importCompleted` events
+- Updates status display after import
+
+**`showcaseView.js` (~330 lines):**
+- Grid view with lazy-loaded covers
+- Detail view with versions table
+- Search and filtering controls
+- Add to qBittorrent from showcase
+- Cover loading for both grid and detail views
+- Click handlers for card expansion
+
+**`logsView.js` (~80 lines):**
+- Log fetching with level filtering (INFO, WARNING, ERROR)
+- Syntax highlighting for log levels
+- Auto-scroll option
+- Refresh and filter controls
+- Configurable line count (50-1000)
+
+#### `/app/static/js/components/` - Reusable Components (~400 lines)
+
+**`importForm.js` (~400 lines):**
+- Complex import workflow management
+- Torrent selection and matching (hash, MAM ID, fuzzy title)
+- Multi-disc auto-detection via `/qb/torrent/{hash}/tree`
+- File tree visualization (original and flattened preview)
+- Flatten checkbox with recommendations
+- Import execution with progress tracking
+- Path validation warnings
+- Emits `importCompleted` event on success
+- Recursive tree rendering for hierarchical file structure
+
+#### Key Architecture Patterns
+
+**Event-Driven Communication:**
+- Views don't directly call each other
+- Custom events: `torrentAdded`, `importCompleted`, `routerStateChange`, `routerViewChange`
+- Loose coupling between modules
+
+**Dependency Injection:**
+- Views receive DOM element references via constructor
+- Router passed to views that need navigation
+- No global state (except `window.app`)
+
+**Module Organization:**
+- **Core:** Infrastructure (API, routing, utilities)
+- **Services:** Shared functionality (cover loading)
+- **Views:** Feature-specific logic (search, history, showcase, logs)
+- **Components:** Complex reusable widgets (import form)
+
+**No Build Step Required:**
+- Native ES6 modules work in modern browsers
+- `import`/`export` syntax throughout
+- Loaded via `<script type="module">`
+- Better browser caching (each module cached separately)
 
 ### `/validate_env.py` (60 lines)
 
@@ -486,13 +569,22 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-#### Frontend Changes (app.js, index.html)
+#### Frontend Changes (JavaScript modules, HTML, CSS)
 ```bash
-# 1. Edit files in app/static/ or app/templates/
+# 1. Edit files in app/static/js/, app/static/, or app/templates/
+#    - Core modules: app/static/js/core/*.js
+#    - Services: app/static/js/services/*.js
+#    - Views: app/static/js/views/*.js
+#    - Components: app/static/js/components/*.js
+#    - Entry point: app/static/app.js
+#    - HTML: app/templates/index.html
+#    - CSS: app/static/css/*.css
+
 # 2. Rebuild container (FastAPI serves static files)
 docker compose up -d --build
 
-# 3. Hard refresh browser (Ctrl+Shift+R)
+# 3. Hard refresh browser (Ctrl+Shift+R) to clear module cache
+#    Or open DevTools and disable cache while DevTools is open
 ```
 
 #### Environment Changes
@@ -738,7 +830,24 @@ ALTER TABLE history ADD COLUMN my_column TEXT;
 
 ### Recent Features & Fixes
 
-1. **Top-Level Task Bar with Logs View** (current)
+1. **Frontend Modular Refactor** (2025-11-16)
+   - Refactored 1,448-line monolithic `app.js` into modular ES6 architecture
+   - Created 9 focused modules totaling ~2,400 well-structured lines
+   - **Core modules** (371 lines): api.js, router.js, utils.js
+   - **Services** (180 lines): coverLoader.js with IntersectionObserver
+   - **Views** (1,220 lines): searchView, historyView, showcaseView, logsView
+   - **Components** (400 lines): importForm with complex workflow logic
+   - **App entry point** (240 lines): orchestration and dependency injection
+   - Benefits: improved maintainability, testability, reusability, debugging
+   - Event-driven architecture: torrentAdded, importCompleted, routerStateChange
+   - No build step required - native ES6 modules in modern browsers
+   - Better browser caching (each module cached separately)
+   - Clear separation of concerns (core, services, views, components)
+   - JSDoc documentation throughout all modules
+   - Cache-busting headers added to prevent stale data issues
+   - Fixed qBittorrent state update bug with improved error logging
+
+2. **Top-Level Task Bar with Logs View**
    - Added persistent navigation task bar at top of page
    - Quick access buttons for Search, History, and Logs views
    - Integrated health status indicator in task bar
