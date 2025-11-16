@@ -824,6 +824,55 @@ a:hover {
   margin-top: var(--spacing-md);
 }
 
+/* ========================================
+   Library Indicator Styles
+   ======================================== */
+
+.in-library-indicator {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(45, 122, 62, 0.95);
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  cursor: help;
+  animation: fadeIn 0.3s ease-in;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.in-library-indicator:hover {
+  background: rgba(45, 122, 62, 1);
+  transform: scale(1.1);
+  transition: all 0.2s ease;
+}
+
+/* Fade in animation for library indicator */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Ensure cover containers are positioned relative for absolute positioning */
+.cover-container,
+.showcase-card {
+  position: relative;
+}
+
 /* Responsive task bar */
 @media (max-width: 768px) {
   .task-bar {
