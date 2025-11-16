@@ -142,8 +142,7 @@ Remaining:
 ### Search Enhancement Backend
 - [ ] **Extend search endpoint** in `app/routes/search.py`:
   - After MAM search results return, create list of title/author pairs
-  - Batch query Audiobookshelf `/api/libraries/{id}/items` endpoint (see _libraries.md:3) with filter parameters
-  - Match results based on fuzzy title/author comparison (use existing fuzzy matching logic from torrent_helpers.py)
+  - Use existing abs verification logic used in history spinning it off as a helper if not already present.
   - Add `in_abs_library` boolean field to each search result
   - Cache library check results in memory for 5 minutes to reduce ABS API calls
 
