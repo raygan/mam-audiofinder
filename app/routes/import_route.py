@@ -17,6 +17,7 @@ from config import (
 from db import engine
 from qb_client import qb_login_sync
 from utils import sanitize, next_available, extract_disc_track, try_hardlink
+from abs_client import abs_client
 
 router = APIRouter()
 logger = logging.getLogger("mam-audiofinder")
@@ -52,7 +53,7 @@ class ImportBody(BaseModel):
 
 
 @router.post("/import")
-def do_import(body: ImportBody):
+async def do_import(body: ImportBody):
     """Import completed torrent to library."""
     author = sanitize(body.author)
     title = sanitize(body.title)
@@ -258,6 +259,97 @@ def do_import(body: ImportBody):
                 {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
             )
 
+    # --- Verify import in Audiobookshelf ---
+    # Don't fail the import if verification fails, just log it
+    verification_result = None
+    try:
+        logger.info(f"🔍 Starting ABS verification for '{title}' by '{author}'")
+        verification_result = await abs_client.verify_import(
+            title=title,
+            author=author,
+            library_path=str(dest_dir)
+        )
+
+        # Update database with verification results
+        with engine.begin() as cx:
+            if body.history_id is not None:
+                cx.execute(
+                    text("""
+                        UPDATE history
+                        SET abs_verify_status=:status, abs_verify_note=:note
+                        WHERE id=:id
+                    """),
+                    {
+                        "status": verification_result.get("status"),
+                        "note": verification_result.get("note"),
+                        "id": body.history_id
+                    }
+                )
+            else:
+                # Fallback: try by torrent hash
+                cx.execute(
+                    text("""
+                        UPDATE history
+                        SET abs_verify_status=:status, abs_verify_note=:note
+                        WHERE qb_hash=:h
+                    """),
+                    {
+                        "status": verification_result.get("status"),
+                        "note": verification_result.get("note"),
+                        "h": body.hash
+                    }
+                )
+
+        # Log verification outcome
+        status = verification_result.get("status", "unknown")
+        note = verification_result.get("note", "")
+        if status == "verified":
+            logger.info(f"✅ Import verification successful: {note}")
+        elif status == "mismatch":
+            logger.warning(f"⚠️  Import verification mismatch: {note}")
+        elif status == "not_found":
+            logger.warning(f"⚠️  Import not found in ABS: {note}")
+        elif status in ("unreachable", "not_configured"):
+            logger.info(f"ℹ️  Import verification skipped: {note}")
+        else:
+            logger.warning(f"⚠️  Import verification unknown status '{status}': {note}")
+
+    except Exception as e:
+        # Log error but don't fail the import
+        logger.error(f"❌ Import verification failed with exception: {type(e).__name__}: {e}")
+        # Try to update database with error status
+        try:
+            with engine.begin() as cx:
+                if body.history_id is not None:
+                    cx.execute(
+                        text("""
+                            UPDATE history
+                            SET abs_verify_status='unreachable',
+                                abs_verify_note=:note
+                            WHERE id=:id
+                        """),
+                        {
+                            "note": f"Verification error: {type(e).__name__}",
+                            "id": body.history_id
+                        }
+                    )
+                else:
+                    cx.execute(
+                        text("""
+                            UPDATE history
+                            SET abs_verify_status='unreachable',
+                                abs_verify_note=:note
+                            WHERE qb_hash=:h
+                        """),
+                        {
+                            "note": f"Verification error: {type(e).__name__}",
+                            "h": body.hash
+                        }
+                    )
+        except Exception:
+            # If even the error update fails, just pass
+            pass
+
     return {
         "ok": True,
         "dest": str(dest_dir),
@@ -266,4 +358,5 @@ def do_import(body: ImportBody):
         "files_moved": files_moved,
         "import_mode": IMPORT_MODE,
         "flatten_applied": use_flatten,
+        "verification": verification_result if verification_result else {"status": "not_attempted"}
     }

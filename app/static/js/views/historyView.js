@@ -139,6 +139,23 @@ export class HistoryView {
       ? `<span style="color: #e74c3c; cursor: help; margin-left: 4px;" title="${escapeHtml(h.path_warning)}">⚠️</span>`
       : '';
 
+    // Verification status indicator (only show if imported)
+    let verifyBadge = '';
+    if (h.imported_at && h.abs_verify_status) {
+      const status = h.abs_verify_status;
+      const note = h.abs_verify_note || '';
+
+      if (status === 'verified') {
+        verifyBadge = `<span style="color: #27ae60; cursor: help; margin-left: 6px;" title="Verified in Audiobookshelf: ${escapeHtml(note)}">✓</span>`;
+      } else if (status === 'mismatch') {
+        verifyBadge = `<span style="color: #f39c12; cursor: help; margin-left: 6px;" title="Mismatch: ${escapeHtml(note)}">⚠</span>`;
+      } else if (status === 'not_found') {
+        verifyBadge = `<span style="color: #e74c3c; cursor: help; margin-left: 6px;" title="Not found in library: ${escapeHtml(note)}">✗</span>`;
+      } else if (status === 'unreachable' || status === 'not_configured') {
+        verifyBadge = `<span style="color: #999; cursor: help; margin-left: 6px;" title="${escapeHtml(note)}">?</span>`;
+      }
+    }
+
     tr.innerHTML = `
       <td style="padding: 0.25rem;">${coverHTML}</td>
       <td>${escapeHtml(h.title || '')}</td>
@@ -146,7 +163,7 @@ export class HistoryView {
       <td>${escapeHtml(h.narrator || '')}</td>
       <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
       <td>${escapeHtml(when)}</td>
-      <td><span style="${statusStyle}">${escapeHtml(h.qb_status || '')}</span>${pathWarningIcon}</td>
+      <td><span style="${statusStyle}">${escapeHtml(h.qb_status || '')}</span>${pathWarningIcon}${verifyBadge}</td>
       <td></td>
       <td></td>
     `;

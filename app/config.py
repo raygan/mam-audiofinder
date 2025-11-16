@@ -42,6 +42,7 @@ ABS_BASE_URL = os.getenv("ABS_BASE_URL", "").rstrip("/")
 ABS_API_KEY = os.getenv("ABS_API_KEY", "")
 ABS_LIBRARY_ID = os.getenv("ABS_LIBRARY_ID", "")
 MAX_COVERS_SIZE_MB = int(os.getenv("MAX_COVERS_SIZE_MB", "500"))  # 0 = direct fetch only (not recommended)
+ABS_VERIFY_TIMEOUT = int(os.getenv("ABS_VERIFY_TIMEOUT", "10"))  # Timeout in seconds for import verification
 
 # ---------------------------- Import Configuration ----------------------------
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")

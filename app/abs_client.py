@@ -6,7 +6,7 @@ import logging
 import httpx
 from typing import Optional
 
-from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID
+from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT
 from covers import cover_service
 
 logger = logging.getLogger("mam-audiofinder")
@@ -187,6 +187,215 @@ class AudiobookshelfClient:
             # Don't fail the whole request if ABS is down
             logger.error(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}")
             return {}
+
+    async def verify_import(self, title: str, author: str = "", library_path: str = "") -> dict:
+        """
+        Verify that an imported item exists in Audiobookshelf library.
+
+        Returns dict with:
+            - status: 'verified', 'mismatch', 'not_found', 'unreachable', or 'not_configured'
+            - note: Diagnostic message explaining the status
+            - abs_item_id: ABS item ID if found, else None
+
+        Implements retry logic with exponential backoff (max 3 attempts).
+        """
+        logger.info(f"🔍 Verifying import in ABS: '{title}' by '{author}' at '{library_path}'")
+
+        # Check if ABS is configured
+        if not self.is_configured:
+            logger.info("ℹ️  Audiobookshelf not configured, skipping verification")
+            return {
+                "status": "not_configured",
+                "note": "ABS integration not configured",
+                "abs_item_id": None
+            }
+
+        if not self.library_id:
+            logger.warning("⚠️  ABS_LIBRARY_ID not configured, cannot verify import")
+            return {
+                "status": "not_configured",
+                "note": "ABS_LIBRARY_ID not configured",
+                "abs_item_id": None
+            }
+
+        if not title:
+            logger.warning("⚠️  No title provided for verification")
+            return {
+                "status": "not_found",
+                "note": "No title provided",
+                "abs_item_id": None
+            }
+
+        # Retry logic with exponential backoff (max 3 attempts)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                headers = {"Authorization": f"Bearer {self.api_key}"}
+
+                logger.info(f"🌐 Calling ABS /api/libraries/{self.library_id}/items (attempt {attempt}/{max_attempts})")
+
+                async with httpx.AsyncClient(timeout=ABS_VERIFY_TIMEOUT) as client:
+                    # Search library items
+                    r = await client.get(
+                        f"{self.base_url}/api/libraries/{self.library_id}/items",
+                        headers=headers,
+                        params={"limit": 20, "minified": "0"}  # Get full metadata for comparison
+                    )
+
+                    logger.info(f"📡 ABS library items response: HTTP {r.status_code}")
+
+                    if r.status_code != 200:
+                        logger.warning(f"⚠️  Library search failed: {r.text[:200]}")
+                        # If this is the last attempt, return unreachable
+                        if attempt == max_attempts:
+                            return {
+                                "status": "unreachable",
+                                "note": f"ABS API returned HTTP {r.status_code}",
+                                "abs_item_id": None
+                            }
+                        # Otherwise, retry with exponential backoff
+                        import asyncio
+                        wait_time = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                        logger.info(f"⏳ Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+
+                    data = r.json()
+                    results = data.get("results", [])
+                    logger.info(f"📊 Got {len(results)} items from library")
+
+                    # Search for matching items
+                    title_lower = title.lower().strip()
+                    author_lower = author.lower().strip() if author else ""
+
+                    best_match = None
+                    best_match_score = 0
+
+                    for item in results:
+                        metadata = item.get("media", {}).get("metadata", {})
+                        item_title = (metadata.get("title") or "").lower().strip()
+                        item_author = (metadata.get("authorName") or "").lower().strip()
+                        item_id = item.get("id")
+                        item_path = item.get("path", "")
+
+                        # Calculate match score
+                        score = 0
+                        title_match = False
+                        author_match = False
+
+                        # Exact title match
+                        if item_title == title_lower:
+                            score += 100
+                            title_match = True
+                        # Title contains or is contained
+                        elif title_lower in item_title or item_title in title_lower:
+                            score += 50
+                            title_match = True
+
+                        # Author matching (if provided)
+                        if author_lower:
+                            if item_author == author_lower:
+                                score += 50
+                                author_match = True
+                            elif author_lower in item_author or item_author in author_lower:
+                                score += 25
+                                author_match = True
+                        else:
+                            # No author to verify, count as match
+                            author_match = True
+                            score += 10
+
+                        # Path matching (if provided)
+                        if library_path and item_path:
+                            # Normalize paths for comparison
+                            lib_path_norm = library_path.lower().replace("\\", "/").strip("/")
+                            item_path_norm = item_path.lower().replace("\\", "/").strip("/")
+                            if lib_path_norm in item_path_norm or item_path_norm in lib_path_norm:
+                                score += 25
+
+                        # Update best match if this is better
+                        if score > best_match_score and title_match:
+                            best_match_score = score
+                            best_match = {
+                                "item_id": item_id,
+                                "title": metadata.get("title"),
+                                "author": metadata.get("authorName"),
+                                "path": item_path,
+                                "title_match": title_match,
+                                "author_match": author_match,
+                                "score": score
+                            }
+
+                    # Evaluate best match
+                    if not best_match:
+                        logger.warning(f"❌ No matching item found in ABS for '{title}'")
+                        return {
+                            "status": "not_found",
+                            "note": f"Not found in library",
+                            "abs_item_id": None
+                        }
+
+                    # Check for mismatches
+                    if best_match_score < 100:  # Less than perfect match
+                        if not best_match["author_match"] and author:
+                            note = f"Author mismatch: expected '{author}' found '{best_match['author']}'"
+                        elif best_match_score < 50:
+                            note = f"Weak match: '{best_match['title']}' (score: {best_match_score})"
+                        else:
+                            note = f"Partial match: '{best_match['title']}' by '{best_match['author']}' (score: {best_match_score})"
+
+                        logger.warning(f"⚠️  {note}")
+                        return {
+                            "status": "mismatch",
+                            "note": note,
+                            "abs_item_id": best_match["item_id"]
+                        }
+
+                    # Verified!
+                    logger.info(f"✅ Import verified in ABS: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
+                    return {
+                        "status": "verified",
+                        "note": f"Found in library: '{best_match['title']}' by '{best_match['author']}'",
+                        "abs_item_id": best_match["item_id"]
+                    }
+
+            except httpx.TimeoutException as e:
+                logger.error(f"⏱️  ABS verification timeout (attempt {attempt}/{max_attempts}): {e}")
+                if attempt == max_attempts:
+                    return {
+                        "status": "unreachable",
+                        "note": f"Timeout after {max_attempts} attempts",
+                        "abs_item_id": None
+                    }
+                # Retry with exponential backoff
+                import asyncio
+                wait_time = 2 ** (attempt - 1)
+                logger.info(f"⏳ Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                continue
+
+            except Exception as e:
+                # Don't fail the import if verification errors
+                logger.error(f"❌ ABS verification failed (attempt {attempt}/{max_attempts}): {type(e).__name__}: {e}")
+                if attempt == max_attempts:
+                    return {
+                        "status": "unreachable",
+                        "note": f"Error: {type(e).__name__}: {str(e)[:100]}",
+                        "abs_item_id": None
+                    }
+                # Retry with exponential backoff
+                import asyncio
+                wait_time = 2 ** (attempt - 1)
+                logger.info(f"⏳ Retrying in {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                continue
+
+        # Should never reach here, but just in case
+        return {
+            "status": "unreachable",
+            "note": "Unknown error during verification",
+            "abs_item_id": None
+        }
 
 
 # Global instance

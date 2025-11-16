@@ -66,10 +66,38 @@ def run_migrations():
 
     pending = 0
     for migration_file in migration_files:
-        # Determine target database
+        # Determine target database by examining SQL content
         migration_num = int(migration_file.stem.split("_")[0])
-        target_engine = covers_engine if migration_num >= 5 else engine
-        db_name = "covers.db" if migration_num >= 5 else "history.db"
+        sql_content = migration_file.read_text().lower()
+
+        # Smart routing: check which table the migration targets
+        targets_history = any(pattern in sql_content for pattern in [
+            "alter table history",
+            "create table history",
+            "create table if not exists history",
+            "insert into history",
+            "create index if not exists idx_history"
+        ])
+
+        targets_covers = any(pattern in sql_content for pattern in [
+            "alter table covers",
+            "create table covers",
+            "create table if not exists covers",
+            "insert into covers",
+            "create index if not exists idx_covers"
+        ])
+
+        # Determine target engine
+        if targets_history and not targets_covers:
+            target_engine = engine
+            db_name = "history.db"
+        elif targets_covers and not targets_history:
+            target_engine = covers_engine
+            db_name = "covers.db"
+        else:
+            # Fallback to legacy logic for migrations that don't clearly target one table
+            target_engine = covers_engine if migration_num >= 5 else engine
+            db_name = "covers.db" if migration_num >= 5 else "history.db"
 
         with target_engine.begin() as cx:
             exists = cx.execute(
@@ -85,7 +113,7 @@ def run_migrations():
         logger.info(f"  → {migration_file.name} (target: {db_name})")
 
         try:
-            # Read migration SQL
+            # Use already-read SQL content (avoid reading file twice)
             sql = migration_file.read_text()
 
             # Split into individual statements (handles multi-statement files)
