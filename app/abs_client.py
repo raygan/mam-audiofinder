@@ -5,6 +5,7 @@ Handles API communication with Audiobookshelf server.
 import logging
 import httpx
 import time
+import asyncio
 from typing import Optional, List, Tuple, Dict
 
 from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT, ABS_LIBRARY_CACHE_TTL
@@ -16,6 +17,11 @@ logger = logging.getLogger("mam-audiofinder")
 class AudiobookshelfClient:
     """Client for interacting with Audiobookshelf API."""
 
+    # Shared HTTP client for connection pooling (class-level)
+    _shared_client: Optional[httpx.AsyncClient] = None
+    # Semaphore to limit concurrent requests to ABS (max 10 concurrent)
+    _request_semaphore: Optional[asyncio.Semaphore] = None
+
     def __init__(self):
         """Initialize Audiobookshelf client."""
         self.base_url = ABS_BASE_URL
@@ -24,6 +30,18 @@ class AudiobookshelfClient:
         # In-memory cache for library items: {cache_key: (result, timestamp)}
         self._library_cache: Dict[str, Tuple[bool, float]] = {}
         self._library_items_cache: Optional[Tuple[List[dict], float]] = None
+
+        # Initialize shared client and semaphore if not already done
+        if AudiobookshelfClient._shared_client is None:
+            AudiobookshelfClient._shared_client = httpx.AsyncClient(
+                timeout=30.0,  # Increased from 10s to handle load
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
+            )
+            logger.info("🔧 Initialized shared HTTP client for ABS requests")
+
+        if AudiobookshelfClient._request_semaphore is None:
+            AudiobookshelfClient._request_semaphore = asyncio.Semaphore(10)
+            logger.info("🔧 Initialized request semaphore (max 10 concurrent ABS requests)")
 
     @property
     def is_configured(self) -> bool:
@@ -40,18 +58,17 @@ class AudiobookshelfClient:
             logger.info(f"🔍 Testing Audiobookshelf API connection to {self.base_url}...")
             headers = {"Authorization": f"Bearer {self.api_key}"}
 
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(f"{self.base_url}/api/me", headers=headers)
+            r = await self._shared_client.get(f"{self.base_url}/api/me", headers=headers)
 
-                if r.status_code == 200:
-                    data = r.json()
-                    username = data.get("username", "unknown")
-                    logger.info(f"✅ Audiobookshelf API connected successfully (user: {username})")
-                    return True
-                else:
-                    logger.error(f"❌ Audiobookshelf API test failed: HTTP {r.status_code}")
-                    logger.error(f"   Response: {r.text[:200]}")
-                    return False
+            if r.status_code == 200:
+                data = r.json()
+                username = data.get("username", "unknown")
+                logger.info(f"✅ Audiobookshelf API connected successfully (user: {username})")
+                return True
+            else:
+                logger.error(f"❌ Audiobookshelf API test failed: HTTP {r.status_code}")
+                logger.error(f"   Response: {r.text[:200]}")
+                return False
 
         except Exception as e:
             logger.error(f"❌ Audiobookshelf API test failed with exception: {e}")
@@ -239,17 +256,19 @@ class AudiobookshelfClient:
             logger.warning(f"⚠️  No title provided, skipping cover fetch")
             return {}
 
-        try:
-            headers = {"Authorization": f"Bearer {self.api_key}"}
-            params = {"title": title}
-            if author:
-                params["author"] = author
+        # Use semaphore to limit concurrent requests to ABS
+        async with self._request_semaphore:
+            try:
+                headers = {"Authorization": f"Bearer {self.api_key}"}
+                params = {"title": title}
+                if author:
+                    params["author"] = author
 
-            logger.info(f"🌐 Calling ABS /api/search/covers with params: {params}")
+                logger.info(f"🌐 Calling ABS /api/search/covers with params: {params}")
 
-            async with httpx.AsyncClient(timeout=10) as client:
+                # Use shared client instead of creating new one
                 # Try the search/covers endpoint first
-                r = await client.get(
+                r = await self._shared_client.get(
                     f"{self.base_url}/api/search/covers",
                     headers=headers,
                     params=params
@@ -289,12 +308,11 @@ class AudiobookshelfClient:
                 else:
                     logger.warning(f"⚠️  /api/search/covers failed: {r.text[:200]}")
 
-            # If no results from search/covers, try searching library items
-            if self.library_id:
-                logger.info(f"🔍 Trying library search with ID: {self.library_id}")
-                async with httpx.AsyncClient(timeout=10) as client:
-                    # Search within library using filter
-                    r = await client.get(
+                # If no results from search/covers, try searching library items
+                if self.library_id:
+                    logger.info(f"🔍 Trying library search with ID: {self.library_id}")
+                    # Search within library using filter (using shared client)
+                    r = await self._shared_client.get(
                         f"{self.base_url}/api/libraries/{self.library_id}/items",
                         headers=headers,
                         params={"limit": 5, "minified": "1"}
@@ -328,16 +346,16 @@ class AudiobookshelfClient:
                         logger.warning(f"⚠️  No matching items in library for '{title}'")
                     else:
                         logger.warning(f"⚠️  Library search failed: {r.text[:200]}")
-            else:
-                logger.info(f"ℹ️  No ABS_LIBRARY_ID configured, skipping library search")
+                else:
+                    logger.info(f"ℹ️  No ABS_LIBRARY_ID configured, skipping library search")
 
-            logger.warning(f"❌ No cover found for '{title}'")
-            return {}
+                logger.warning(f"❌ No cover found for '{title}'")
+                return {}
 
-        except Exception as e:
-            # Don't fail the whole request if ABS is down
-            logger.error(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}")
-            return {}
+            except Exception as e:
+                # Don't fail the whole request if ABS is down
+                logger.error(f"❌ Audiobookshelf cover fetch failed for '{title}': {type(e).__name__}: {e}")
+                return {}
 
     async def verify_import(self, title: str, author: str = "", library_path: str = "", metadata: dict = None) -> dict:
         """

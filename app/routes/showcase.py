@@ -13,6 +13,7 @@ from typing import Dict, List
 
 from config import MAM_BASE, MAM_COOKIE, ABS_CHECK_LIBRARY
 from abs_client import abs_client
+from mam_cache import get_cached_mam_search, cache_mam_search
 
 router = APIRouter()
 logger = logging.getLogger("mam-audiofinder")
@@ -102,43 +103,59 @@ async def showcase(
     if not MAM_COOKIE:
         raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
 
-    # Build MAM search payload
-    tor = {
-        "text": query,
-        "srchIn": ["title", "author", "narrator"],
-        "searchType": "all",
-        "sortType": "default",
-        "startNumber": "0",
-        "main_cat": ["13"],  # Audiobooks
-    }
+    # Check cache first (using default sort for showcase)
+    cached = get_cached_mam_search(query, limit, "default")
+    if cached:
+        logger.info(f"✅ Showcase cache HIT for query='{query}', limit={limit}")
+        # Return cached MAM data directly - we'll process it below
+        raw = cached.get("_raw_data")
+        if raw:
+            logger.info(f"✅ Using cached raw MAM data ({len(raw.get('data', []))} items)")
+        else:
+            # Old cache format without _raw_data - fetch fresh
+            logger.warning("⚠️  Cached data missing _raw_data, fetching fresh")
+            cached = None
 
-    body = {"tor": tor, "perpage": limit}
+    if not cached:
+        logger.info(f"❌ Showcase cache MISS for query='{query}', limit={limit} - fetching from MAM")
 
-    headers = {
-        "Cookie": MAM_COOKIE,
-        "Content-Type": "application/json",
-        "Accept": "application/json, */*",
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://www.myanonamouse.net",
-        "Referer": "https://www.myanonamouse.net/",
-    }
-    params = {"dlLink": "1"}
+        # Build MAM search payload
+        tor = {
+            "text": query,
+            "srchIn": ["title", "author", "narrator"],
+            "searchType": "all",
+            "sortType": "default",
+            "startNumber": "0",
+            "main_cat": ["13"],  # Audiobooks
+        }
 
-    # Fetch from MAM
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(f"{MAM_BASE}/tor/js/loadSearchJSONbasic.php",
-                                  headers=headers, params=params, json=body)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"MAM request failed: {e}")
+        body = {"tor": tor, "perpage": limit}
 
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"MAM HTTP {r.status_code}: {r.text[:300]}")
+        headers = {
+            "Cookie": MAM_COOKIE,
+            "Content-Type": "application/json",
+            "Accept": "application/json, */*",
+            "User-Agent": "Mozilla/5.0",
+            "Origin": "https://www.myanonamouse.net",
+            "Referer": "https://www.myanonamouse.net/",
+        }
+        params = {"dlLink": "1"}
 
-    try:
-        raw = r.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail=f"MAM returned non-JSON. Body: {r.text[:300]}")
+        # Fetch from MAM
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(f"{MAM_BASE}/tor/js/loadSearchJSONbasic.php",
+                                      headers=headers, params=params, json=body)
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=502, detail=f"MAM request failed: {e}")
+
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"MAM HTTP {r.status_code}: {r.text[:300]}")
+
+        try:
+            raw = r.json()
+        except ValueError:
+            raise HTTPException(status_code=502, detail=f"MAM returned non-JSON. Body: {r.text[:300]}")
 
     # Parse and group results
     groups_dict: Dict[str, List[dict]] = defaultdict(list)
@@ -235,9 +252,16 @@ async def showcase(
 
     logger.info(f"✅ Showcase: Returning {len(groups)} title groups from {len(raw.get('data', []))} results")
 
-    return JSONResponse({
+    response_data = {
         "groups": groups,
         "total_groups": len(groups),
         "total_results": len(raw.get("data", [])),
         "query": query,
-    })
+        "_raw_data": raw,  # Cache raw MAM data for reuse
+    }
+
+    # Cache the result for 5 minutes (store raw data for potential reuse)
+    if not cached:  # Only cache if we fetched fresh data
+        cache_mam_search(query, limit, response_data, "default")
+
+    return JSONResponse(response_data)

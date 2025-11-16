@@ -204,70 +204,52 @@ export class ShowcaseView {
   }
 
   /**
-   * Load cover for showcase card with retry, backoff, and jitter
+   * Load cover for showcase card
+   * Backend handles all retries with exponential backoff and jitter
    * @param {HTMLElement} skeletonEl - Skeleton element to replace
    * @param {string} mamId - MAM torrent ID
    * @param {string} title - Book title
    * @param {string} author - Author name
    */
   async loadShowcaseCover(skeletonEl, mamId, title, author) {
-    // Add random initial jitter to spread out concurrent requests (0-500ms)
-    const initialJitter = Math.random() * 500;
+    // Add small random initial jitter to spread out burst of requests (0-300ms)
+    const initialJitter = Math.random() * 300;
     await new Promise(resolve => setTimeout(resolve, initialJitter));
 
-    const maxRetries = 3;
-    let attempt = 0;
+    try {
+      // Preserve library indicator if it exists
+      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
 
-    while (attempt <= maxRetries) {
-      try {
-        // Preserve library indicator if it exists
-        const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
+      // Backend handles retries - just call once
+      const data = await api.fetchCover({
+        mam_id: mamId,
+        title: title || '',
+        author: author || '',
+        max_retries: '3'
+      });
 
-        const data = await api.fetchCover({
-          mam_id: mamId,
-          title: title || '',
-          author: author || '',
-          max_retries: '3'
-        });
+      if (data.cover_url) {
+        const img = document.createElement('img');
+        img.className = 'showcase-cover';
+        img.src = data.cover_url;
+        img.alt = title || 'Cover';
+        img.loading = 'lazy';
 
-        if (data.cover_url) {
-          const img = document.createElement('img');
-          img.className = 'showcase-cover';
-          img.src = data.cover_url;
-          img.alt = title || 'Cover';
-          img.loading = 'lazy';
+        img.onload = () => {
+          // Create wrapper to maintain relative positioning for indicator
+          const wrapper = document.createElement('div');
+          wrapper.style.position = 'relative';
+          wrapper.appendChild(img);
 
-          img.onload = () => {
-            // Create wrapper to maintain relative positioning for indicator
-            const wrapper = document.createElement('div');
-            wrapper.style.position = 'relative';
-            wrapper.appendChild(img);
+          // Re-add library indicator if it existed
+          if (libraryIndicator) {
+            wrapper.appendChild(libraryIndicator);
+          }
 
-            // Re-add library indicator if it existed
-            if (libraryIndicator) {
-              wrapper.appendChild(libraryIndicator);
-            }
+          skeletonEl.replaceWith(wrapper);
+        };
 
-            skeletonEl.replaceWith(wrapper);
-          };
-
-          img.onerror = () => {
-            const placeholder = document.createElement('div');
-            placeholder.className = 'showcase-cover-placeholder';
-            placeholder.textContent = '📚';
-
-            // Re-add library indicator if it existed
-            if (libraryIndicator) {
-              placeholder.style.position = 'relative';
-              placeholder.appendChild(libraryIndicator);
-            }
-
-            skeletonEl.replaceWith(placeholder);
-          };
-
-          // Success - exit retry loop
-          return;
-        } else {
+        img.onerror = () => {
           const placeholder = document.createElement('div');
           placeholder.className = 'showcase-cover-placeholder';
           placeholder.textContent = '📚';
@@ -279,37 +261,33 @@ export class ShowcaseView {
           }
 
           skeletonEl.replaceWith(placeholder);
-          return;
-        }
-      } catch (error) {
-        attempt++;
+        };
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'showcase-cover-placeholder';
+        placeholder.textContent = '📚';
 
-        if (attempt > maxRetries) {
-          // Final failure - show placeholder
-          console.error(`Failed to load cover after ${maxRetries} retries:`, error);
-          const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
-          const placeholder = document.createElement('div');
-          placeholder.className = 'showcase-cover-placeholder';
-          placeholder.textContent = '📚';
-
-          if (libraryIndicator) {
-            placeholder.style.position = 'relative';
-            placeholder.appendChild(libraryIndicator);
-          }
-
-          skeletonEl.replaceWith(placeholder);
-          return;
+        // Re-add library indicator if it existed
+        if (libraryIndicator) {
+          placeholder.style.position = 'relative';
+          placeholder.appendChild(libraryIndicator);
         }
 
-        // Exponential backoff with scaled jitter
-        // Base delay: 2^attempt seconds, jitter: 0 to (base delay * 0.5)
-        const baseDelay = Math.pow(2, attempt) * 1000;
-        const jitter = Math.random() * (baseDelay * 0.5);
-        const retryDelay = baseDelay + jitter;
-
-        console.log(`Cover load failed (attempt ${attempt}), retrying in ${Math.round(retryDelay)}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        skeletonEl.replaceWith(placeholder);
       }
+    } catch (error) {
+      console.error(`Failed to load cover for "${title}":`, error);
+      const libraryIndicator = skeletonEl.querySelector('.in-library-indicator');
+      const placeholder = document.createElement('div');
+      placeholder.className = 'showcase-cover-placeholder';
+      placeholder.textContent = '📚';
+
+      if (libraryIndicator) {
+        placeholder.style.position = 'relative';
+        placeholder.appendChild(libraryIndicator);
+      }
+
+      skeletonEl.replaceWith(placeholder);
     }
   }
 
@@ -517,61 +495,41 @@ export class ShowcaseView {
   }
 
   /**
-   * Load cover for detail view with retry, backoff, and jitter
+   * Load cover for detail view
+   * Backend handles all retries
    * @param {HTMLElement} skeletonEl - Skeleton element
    * @param {string} mamId - MAM ID
    * @param {string} title - Title
    * @param {string} author - Author
    */
   async loadDetailCover(skeletonEl, mamId, title, author) {
-    const maxRetries = 3;
-    let attempt = 0;
+    try {
+      const data = await api.fetchCover({
+        mam_id: mamId,
+        title: title || '',
+        author: author || '',
+        max_retries: '3'
+      });
 
-    while (attempt <= maxRetries) {
-      try {
-        const data = await api.fetchCover({
-          mam_id: mamId,
-          title: title || '',
-          author: author || '',
-          max_retries: '3'
-        });
+      if (data.cover_url) {
+        const img = document.createElement('img');
+        img.className = 'showcase-detail-cover';
+        img.src = data.cover_url;
+        img.alt = title || 'Cover';
 
-        if (data.cover_url) {
-          const img = document.createElement('img');
-          img.className = 'showcase-detail-cover';
-          img.src = data.cover_url;
-          img.alt = title || 'Cover';
+        img.onload = () => {
+          skeletonEl.replaceWith(img);
+        };
 
-          img.onload = () => {
-            skeletonEl.replaceWith(img);
-          };
-
-          img.onerror = () => {
-            skeletonEl.style.display = 'none';
-          };
-
-          return; // Success
-        } else {
+        img.onerror = () => {
           skeletonEl.style.display = 'none';
-          return;
-        }
-      } catch (error) {
-        attempt++;
-
-        if (attempt > maxRetries) {
-          console.error(`Failed to load detail cover after ${maxRetries} retries:`, error);
-          skeletonEl.style.display = 'none';
-          return;
-        }
-
-        // Exponential backoff with scaled jitter
-        const baseDelay = Math.pow(2, attempt) * 1000;
-        const jitter = Math.random() * (baseDelay * 0.5);
-        const retryDelay = baseDelay + jitter;
-
-        console.log(`Detail cover load failed (attempt ${attempt}), retrying in ${Math.round(retryDelay)}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        };
+      } else {
+        skeletonEl.style.display = 'none';
       }
+    } catch (error) {
+      console.error(`Failed to load detail cover for "${title}":`, error);
+      skeletonEl.style.display = 'none';
     }
   }
 }
