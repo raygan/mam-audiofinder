@@ -2,9 +2,9 @@
 
 A lightweight web app to search MyAnonamouse for audiobooks, add them to qBittorrent, and import completed downloads into your Audiobookshelf library.
 
-![Search](screenshots/search.jpg)
-![History](screenshots/history.jpg)
-![Showcase](screenshots/showcase.jpg)
+![Search](documentation/screenshots/search.jpg)
+![History](documentation/screenshots/history.jpg)
+![Showcase](documentation/screenshots/showcase.jpg)
 
 ## Table of Contents
 
