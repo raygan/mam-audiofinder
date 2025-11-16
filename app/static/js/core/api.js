@@ -72,7 +72,7 @@ export const api = {
    * @returns {Promise<{items: Array}>}
    */
   async getHistory() {
-    const r = await fetch('/history', {
+    const r = await fetch('/api/history', {
       cache: 'no-cache',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -99,7 +99,7 @@ export const api = {
    * @returns {Promise<Object>}
    */
   async deleteHistoryItem(id) {
-    const resp = await fetch(`/history/${encodeURIComponent(id)}`, {
+    const resp = await fetch(`/api/history/${encodeURIComponent(id)}`, {
       method: 'DELETE'
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -204,7 +204,7 @@ export const api = {
       query: params.query || '',
       limit: params.limit.toString()
     });
-    const resp = await fetch(`/showcase?${queryParams}`);
+    const resp = await fetch(`/api/showcase?${queryParams}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
   }
