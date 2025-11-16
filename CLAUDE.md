@@ -96,7 +96,7 @@ mam-audiofinder/
 
 **`db/db.py` (~130 lines):** SQLAlchemy engines, migration system, connection pooling
 
-**`abs_client.py` (~170 lines):** AudiobookshelfClient class, cover fetching, library search
+**`abs_client.py` (~850 lines):** AudiobookshelfClient class, cover fetching, library search, description fetching post-import
 
 **`covers.py` (~350 lines):** CoverService, local caching, auto-cleanup, auto-healing
 
@@ -157,7 +157,9 @@ CREATE TABLE history (
   mam_id TEXT, title TEXT, author TEXT, narrator TEXT, dl TEXT,
   added_at TEXT DEFAULT (datetime('now')),
   qb_status TEXT, qb_hash TEXT, imported_at TEXT,
-  abs_item_id TEXT, abs_cover_url TEXT, abs_cover_cached_at TEXT
+  abs_item_id TEXT, abs_cover_url TEXT, abs_cover_cached_at TEXT,
+  abs_verify_status TEXT, abs_verify_note TEXT,
+  abs_description_source TEXT, abs_metadata TEXT, abs_description TEXT
 )
 ```
 
@@ -168,7 +170,8 @@ CREATE TABLE covers (
   mam_id TEXT UNIQUE NOT NULL, title TEXT, author TEXT,
   cover_url TEXT NOT NULL, abs_item_id TEXT,
   local_file TEXT, file_size INTEGER,
-  fetched_at TEXT DEFAULT (datetime('now'))
+  fetched_at TEXT DEFAULT (datetime('now')),
+  abs_metadata TEXT, abs_metadata_fetched_at TEXT, abs_description TEXT
 )
 ```
 
@@ -190,6 +193,23 @@ CREATE TABLE covers (
 - Auto-cleanup when exceeding MAX_COVERS_SIZE_MB
 - Connection pooling for concurrent fetches
 - Auto-healing for missing files
+
+### Description Fetching (Post-Import)
+
+**Flow:** Search → Add to qB → Import → Verify → **Fetch description** → Display in UI
+
+**Implementation:** `abs_client.py:_update_description_after_verification()`
+- Triggered when `verify_import()` succeeds (score >= 100)
+- Fetches full metadata from `/api/items/{id}?expanded=1`
+- Updates both covers.db and history.db with description/metadata
+- Non-blocking: verification succeeds even if fetch fails
+- Uses 60s cache to avoid redundant API calls
+
+**When descriptions are fetched:**
+- ✅ Successful import verification (ASIN/ISBN or title/author match)
+- ✅ Manual re-verification via "Refresh" button
+- ❌ Search results (external sources lack item IDs)
+- ❌ Verification mismatches or failures
 
 ### Testing Framework
 
@@ -326,10 +346,11 @@ except Exception:
 
 ### Database Migrations
 
-1. Create `app/db/migrations/006_my_change.sql`
+1. Create `app/db/migrations/009_my_change.sql` (next available number)
 2. Write idempotent SQL (use IF NOT EXISTS)
 3. Runs automatically on next startup
-4. Migrations 001-004 target history.db, 005+ target covers.db
+4. Smart routing: history table changes → history.db, covers table changes → covers.db
+5. Current migrations: 001-006 (history.db), 005,008 (covers.db), 007 (history.db)
 
 ## Common Tasks
 

@@ -6,6 +6,7 @@ import logging
 import httpx
 import time
 import asyncio
+import json
 from typing import Optional, List, Tuple, Dict
 
 from config import ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT, ABS_LIBRARY_CACHE_TTL
@@ -567,6 +568,10 @@ class AudiobookshelfClient:
                     if best_match_score >= 200:
                         # ASIN/ISBN match - highest confidence
                         logger.info(f"✅ Import verified in ABS via ASIN/ISBN: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
+
+                        # Fetch and save description/metadata for verified import
+                        await self._update_description_after_verification(best_match["item_id"], title, author)
+
                         return {
                             "status": "verified",
                             "note": f"ASIN/ISBN match: '{best_match['title']}' by '{best_match['author']}'",
@@ -575,6 +580,10 @@ class AudiobookshelfClient:
                     elif best_match_score >= 100:
                         # Perfect title + author match
                         logger.info(f"✅ Import verified in ABS: '{best_match['title']}' by '{best_match['author']}' (ID: {best_match['item_id']})")
+
+                        # Fetch and save description/metadata for verified import
+                        await self._update_description_after_verification(best_match["item_id"], title, author)
+
                         return {
                             "status": "verified",
                             "note": f"Found in library: '{best_match['title']}' by '{best_match['author']}'",
@@ -731,6 +740,99 @@ class AudiobookshelfClient:
         except Exception as e:
             logger.error(f"❌ Failed to fetch item details for {item_id}: {type(e).__name__}: {e}")
             return {}
+
+    async def _update_description_after_verification(self, item_id: str, title: str, author: str):
+        """
+        Fetch description and metadata from ABS after successful import verification.
+        Updates both covers cache and history table with description/metadata.
+
+        Args:
+            item_id: ABS item ID from verification
+            title: Book title for matching history/covers records
+            author: Author name for cover cache lookup
+        """
+        if not item_id:
+            logger.debug("⏭️  No item_id provided, skipping description update")
+            return
+
+        try:
+            logger.info(f"📝 Fetching description for verified import: '{title}' (item_id: {item_id})")
+
+            # Fetch full metadata including description
+            item_details = await self.fetch_item_details(item_id)
+            if not item_details:
+                logger.warning(f"⚠️  Failed to fetch item details for {item_id}, skipping description update")
+                return
+
+            description = item_details.get("description", "")
+            metadata_json = item_details.get("metadata", {})
+
+            if not description and not metadata_json:
+                logger.debug(f"ℹ️  No description or metadata available for item {item_id}")
+                return
+
+            # Import here to avoid circular import
+            from covers import cover_service
+            from db import covers_engine, engine
+            from sqlalchemy import text
+            from datetime import datetime
+
+            # Update covers cache (search by title/author since we may not have mam_id)
+            try:
+                with covers_engine.begin() as cx:
+                    # Update by abs_item_id if available, otherwise by title/author
+                    result = cx.execute(text("""
+                        UPDATE covers
+                        SET abs_description = :description,
+                            abs_metadata = :metadata,
+                            abs_metadata_fetched_at = :fetched_at,
+                            abs_item_id = :item_id
+                        WHERE abs_item_id = :item_id
+                           OR (title = :title AND author = :author)
+                    """), {
+                        "description": description if description else None,
+                        "metadata": json.dumps(metadata_json) if metadata_json else None,
+                        "fetched_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                        "item_id": item_id,
+                        "title": title,
+                        "author": author
+                    })
+
+                    if result.rowcount > 0:
+                        logger.info(f"✅ Updated {result.rowcount} cover cache row(s) with description for '{title}'")
+                    else:
+                        logger.debug(f"ℹ️  No cover cache rows found to update for '{title}'")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to update covers cache (non-critical): {e}")
+
+            # Update history table
+            try:
+                with engine.begin() as cx:
+                    result = cx.execute(text("""
+                        UPDATE history
+                        SET abs_description = :description,
+                            abs_metadata = :metadata,
+                            abs_description_source = 'post_import',
+                            abs_item_id = :item_id
+                        WHERE title = :title
+                           OR abs_item_id = :item_id
+                    """), {
+                        "description": description if description else None,
+                        "metadata": json.dumps(metadata_json) if metadata_json else None,
+                        "item_id": item_id,
+                        "title": title
+                    })
+
+                    if result.rowcount > 0:
+                        logger.info(f"✅ Updated {result.rowcount} history row(s) with description for '{title}'")
+                    else:
+                        logger.debug(f"ℹ️  No history rows found to update for '{title}'")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to update history table (non-critical): {e}")
+
+        except Exception as e:
+            # Don't fail verification if description fetch fails
+            logger.error(f"❌ Failed to update description after verification: {type(e).__name__}: {e}")
 
 
 # Global instance
