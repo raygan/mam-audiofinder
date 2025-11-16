@@ -13,21 +13,28 @@ The project uses a **Makefile-based test suite** with three main test categories
 ## Quick Start
 
 ```bash
-# Install development dependencies
+# 1. Create and activate virtual environment (recommended)
+make venv
+source venv/bin/activate  # Linux/macOS
+# or: venv\Scripts\activate  # Windows
+
+# 2. Install development dependencies
 make install-dev
 
-# Run backend tests only
+# 3. Run backend tests only
 make test-backend
 
-# Run frontend tests only (requires Selenium)
+# 4. Run frontend tests only (requires Selenium)
 make test-frontend
 
-# Run all tests
+# 5. Run all tests
 make test-all
 
 # Show all available targets
 make help
 ```
+
+**Note:** If you're on Debian/Ubuntu and get an "externally-managed-environment" error, you **must** create a virtual environment first using `make venv`.
 
 ## Test Architecture
 
