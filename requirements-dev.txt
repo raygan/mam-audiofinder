@@ -18,5 +18,11 @@ faker==20.1.0                # Generate fake test data
 responses==0.24.1            # Mock HTTP requests
 freezegun==1.4.0             # Mock datetime
 
+# Frontend Testing (Selenium)
+selenium==4.15.2             # Browser automation
+pytest-selenium==4.0.1       # Pytest integration for Selenium
+pytest-html==4.1.1           # HTML test reports
+webdriver-manager==4.0.1     # Automatic WebDriver management
+
 # Include production dependencies
 -r requirements.txt
