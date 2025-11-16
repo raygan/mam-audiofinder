@@ -9,7 +9,7 @@ from pathlib import Path
 
 # Add app directory to path for imports
 import sys
-sys.path.insert(0, '/workspace/app')
+sys.path.insert(0, '/app')
 
 async def test_description_update():
     """Test the description update functionality."""
@@ -34,7 +34,7 @@ async def test_description_update():
 
     # Check if there are any books in history
     print(f"\n2. Checking history.db for test candidates:")
-    conn = sqlite3.connect('/workspace/data/history.db')
+    conn = sqlite3.connect('/data/history.db')
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -101,7 +101,7 @@ async def test_description_update():
     # Check if description was saved
     print(f"\n5. Checking if description was saved...")
 
-    conn = sqlite3.connect('/workspace/data/history.db')
+    conn = sqlite3.connect('/data/history.db')
     cursor = conn.cursor()
     cursor.execute("""
         SELECT abs_description, abs_metadata, abs_description_source
@@ -126,7 +126,7 @@ async def test_description_update():
     # Check covers.db too
     if mam_id:
         print(f"\n6. Checking covers.db for MAM ID {mam_id}...")
-        conn = sqlite3.connect('/workspace/data/covers.db')
+        conn = sqlite3.connect('/data/covers.db')
         cursor = conn.cursor()
         cursor.execute("""
             SELECT abs_description, abs_metadata

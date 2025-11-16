@@ -15,9 +15,9 @@ PIP := pip3
 DOCKER_COMPOSE := docker compose
 
 # Test directories
-BACKEND_TESTS := tests/
-FRONTEND_TESTS := tests/frontend/
-ALL_TESTS := tests/
+BACKEND_TESTS := app/tests/
+FRONTEND_TESTS := app/tests/frontend/
+ALL_TESTS := app/tests/
 
 # Coverage settings
 COVERAGE_MIN := 70
