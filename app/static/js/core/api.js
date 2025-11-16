@@ -107,6 +107,27 @@ export const api = {
   },
 
   /**
+   * Manually trigger verification for a history item
+   * @param {number|string} id - History item ID
+   * @returns {Promise<{ok: boolean, verification: Object}>}
+   */
+  async verifyHistoryItem(id) {
+    const resp = await fetch(`/api/history/${encodeURIComponent(id)}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const j = await resp.json();
+        if (j?.detail) msg += ` — ${j.detail}`;
+      } catch {}
+      throw new Error(msg);
+    }
+    return resp.json();
+  },
+
+  /**
    * Get completed torrents from qBittorrent
    * @returns {Promise<{items: Array}>}
    */

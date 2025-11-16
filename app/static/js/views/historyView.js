@@ -106,6 +106,14 @@ export class HistoryView {
     const importBtn = document.createElement('button');
     importBtn.textContent = 'Import';
 
+    const verifyBtn = document.createElement('button');
+    verifyBtn.textContent = '🔄 Verify';
+    verifyBtn.title = 'Re-check verification in Audiobookshelf';
+    verifyBtn.style.display = h.imported_at ? '' : 'none';  // Only show for imported items
+    verifyBtn.addEventListener('click', async () => {
+      await this.verifyHistoryItem(h.id, tr);
+    });
+
     const rmBtn = document.createElement('button');
     rmBtn.textContent = 'Remove';
     rmBtn.addEventListener('click', async () => {
@@ -166,9 +174,11 @@ export class HistoryView {
       <td><span style="${statusStyle}">${escapeHtml(h.qb_status || '')}</span>${pathWarningIcon}${verifyBadge}</td>
       <td></td>
       <td></td>
+      <td></td>
     `;
 
-    tr.children[tr.children.length - 2].appendChild(importBtn);
+    tr.children[tr.children.length - 3].appendChild(importBtn);
+    tr.children[tr.children.length - 2].appendChild(verifyBtn);
     tr.lastElementChild.appendChild(rmBtn);
     this.elements.tbody.appendChild(tr);
 
@@ -237,6 +247,73 @@ export class HistoryView {
     } catch (e) {
       console.error('remove failed', e);
       rmBtn.disabled = false;
+    }
+  }
+
+  /**
+   * Manually verify a history item
+   * @param {number} id - History item ID
+   * @param {HTMLTableRowElement} tr - Table row element
+   */
+  async verifyHistoryItem(id, tr) {
+    // Find the verify button (second to last button)
+    const buttons = tr.querySelectorAll('button');
+    const verifyBtn = buttons[buttons.length - 2];
+    const originalText = verifyBtn.textContent;
+
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = '⏳ Verifying...';
+
+    try {
+      const result = await api.verifyHistoryItem(id);
+
+      if (result.ok && result.verification) {
+        // Update the status column with new verification badge
+        const statusCell = tr.children[6];  // Status column
+        const status = result.verification.status;
+        const note = result.verification.note || '';
+
+        // Remove existing verify badge
+        const existingBadge = statusCell.querySelector('span[title^="Verified"], span[title^="Mismatch"], span[title^="Not found"]');
+        if (existingBadge) {
+          existingBadge.remove();
+        }
+
+        // Add new verify badge
+        let verifyBadge = '';
+        if (status === 'verified') {
+          verifyBadge = `<span style="color: #27ae60; cursor: help; margin-left: 6px;" title="Verified in Audiobookshelf: ${escapeHtml(note)}">✓</span>`;
+        } else if (status === 'mismatch') {
+          verifyBadge = `<span style="color: #f39c12; cursor: help; margin-left: 6px;" title="Mismatch: ${escapeHtml(note)}">⚠</span>`;
+        } else if (status === 'not_found') {
+          verifyBadge = `<span style="color: #e74c3c; cursor: help; margin-left: 6px;" title="Not found in library: ${escapeHtml(note)}">✗</span>`;
+        } else if (status === 'unreachable' || status === 'not_configured') {
+          verifyBadge = `<span style="color: #999; cursor: help; margin-left: 6px;" title="${escapeHtml(note)}">?</span>`;
+        }
+
+        if (verifyBadge) {
+          statusCell.insertAdjacentHTML('beforeend', verifyBadge);
+        }
+
+        verifyBtn.textContent = '✓ Done';
+        setTimeout(() => {
+          verifyBtn.textContent = originalText;
+          verifyBtn.disabled = false;
+        }, 2000);
+      } else {
+        verifyBtn.textContent = '✗ Failed';
+        setTimeout(() => {
+          verifyBtn.textContent = originalText;
+          verifyBtn.disabled = false;
+        }, 2000);
+      }
+    } catch (e) {
+      console.error('verify failed', e);
+      verifyBtn.textContent = '✗ Error';
+      setTimeout(() => {
+        verifyBtn.textContent = originalText;
+        verifyBtn.disabled = false;
+      }, 2000);
     }
   }
 
