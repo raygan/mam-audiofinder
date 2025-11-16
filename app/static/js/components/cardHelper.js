@@ -4,6 +4,7 @@
  */
 
 import { addLibraryIndicator } from './libraryIndicator.js';
+import { normalizeTitle, normalizeAuthor, generateCardGuid } from '../core/titleUtils.js';
 
 /**
  * Create a book card element with consistent styling and behavior
@@ -44,6 +45,11 @@ export function createBookCard(config) {
   card.dataset.mamId = mamId;
   card.dataset.title = title;
   card.dataset.author = author;
+
+  // Add normalized title and GUID for series search
+  card.dataset.normalizedTitle = normalizeTitle(title);
+  card.dataset.normalizedAuthor = normalizeAuthor(author);
+  card.dataset.cardGuid = generateCardGuid(mamId, title, author);
 
   // Create cover container (placeholder or actual image)
   const coverContainer = createCoverContainer(coverUrl, inLibrary);
