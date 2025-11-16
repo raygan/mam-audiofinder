@@ -1,5 +1,51 @@
 # Frontend Architecture
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Project Structure](#project-structure)
+- [Architecture Patterns](#architecture-patterns)
+  - [Multi-Page Application](#multi-page-application)
+  - [Dependency Injection](#dependency-injection)
+  - [Event-Driven Communication](#event-driven-communication)
+- [Core Services](#core-services)
+  - [api.js (~180 lines)](#apijs-180-lines)
+  - [router.js (~115 lines)](#routerjs-115-lines)
+  - [utils.js (~30 lines)](#utilsjs-30-lines)
+- [Services](#services)
+  - [coverLoader.js (~180 lines)](#coverloaderjs-180-lines)
+- [Views](#views)
+  - [searchView.js (~230 lines)](#searchviewjs-230-lines)
+  - [historyView.js (~180 lines)](#historyviewjs-180-lines)
+  - [showcaseView.js (~610 lines)](#showcaseviewjs-610-lines)
+  - [logsView.js (~80 lines)](#logsviewjs-80-lines)
+- [Components](#components)
+  - [importForm.js (~400 lines)](#importformjs-400-lines)
+  - [libraryIndicator.js](#libraryindicatorjs)
+- [Page Controllers](#page-controllers)
+  - [search.js (~130 lines)](#searchjs-130-lines)
+  - [history.js (~120 lines)](#historyjs-120-lines)
+  - [showcase.js (~140 lines)](#showcasejs-140-lines)
+  - [logs.js (~110 lines)](#logsjs-110-lines)
+- [Styling](#styling)
+  - [CSS Architecture](#css-architecture)
+  - [Theme Variables](#theme-variables)
+  - [Responsive Design](#responsive-design)
+  - [Component Styles](#component-styles)
+- [Development Workflow](#development-workflow)
+  - [Adding a New Page](#adding-a-new-page)
+  - [Adding a New Component](#adding-a-new-component)
+  - [Debugging Tips](#debugging-tips)
+- [Performance Optimization](#performance-optimization)
+  - [Lazy Loading](#lazy-loading)
+  - [Debouncing](#debouncing)
+  - [Request Batching](#request-batching)
+  - [Caching](#caching)
+  - [Minimal Reflows](#minimal-reflows)
+- [Testing](#testing)
+  - [Manual Testing Checklist](#manual-testing-checklist)
+  - [Browser Compatibility](#browser-compatibility)
+
 ## Overview
 
 The frontend is a **multi-page application** built with:
@@ -40,12 +86,8 @@ app/static/
 │       ├── showcase.js            # Showcase page controller
 │       └── logs.js                # Logs page controller
 │
-├── css/
-│   └── styles.css                 # Global styles
-│
-└── screenshots/
-    ├── search.png
-    └── import.png
+└── css/
+    └── styles.css                 # Global styles
 ```
 
 ## Architecture Patterns

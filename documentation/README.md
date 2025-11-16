@@ -2,8 +2,43 @@
 
 A lightweight web app to search MyAnonamouse for audiobooks, add them to qBittorrent, and import completed downloads into your Audiobookshelf library.
 
-![Search](app/static/screenshots/search.png)
-![Import](app/static/screenshots/import.png)
+![Search](screenshots/search.jpg)
+![History](screenshots/history.jpg)
+![Showcase](screenshots/showcase.jpg)
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [1. Clone & Configure](#1-clone--configure)
+  - [2. Edit `.env` File](#2-edit-env-file)
+  - [3. Start Container](#3-start-container)
+  - [4. Open Browser](#4-open-browser)
+- [Configuration](#configuration)
+  - [Required Environment Variables](#required-environment-variables)
+  - [Optional - Audiobookshelf Integration](#optional---audiobookshelf-integration)
+  - [Optional - Behavior](#optional---behavior)
+  - [Optional - Container Settings](#optional---container-settings)
+- [How to Use](#how-to-use)
+  - [Search for Audiobooks](#search-for-audiobooks)
+  - [Add to qBittorrent](#add-to-qbittorrent)
+  - [Import to Audiobookshelf](#import-to-audiobookshelf)
+  - [Browse with Showcase View](#browse-with-showcase-view)
+- [Important Notes](#important-notes)
+  - [⚠️ Security Warning](#️-security-warning)
+  - [Path Mapping](#path-mapping)
+  - [Multi-Disc Audiobooks](#multi-disc-audiobooks)
+  - [Import Verification](#import-verification)
+- [Troubleshooting](#troubleshooting)
+  - [Import fails with "path not found"](#import-fails-with-path-not-found)
+  - [Permission denied errors](#permission-denied-errors)
+  - [Covers not loading](#covers-not-loading)
+  - [Verification always shows "not_found"](#verification-always-shows-not_found)
+  - [MAM searches fail](#mam-searches-fail)
+- [Logs](#logs)
+- [Technical Documentation](#technical-documentation)
+- [Requirements](#requirements)
+- [License](#license)
 
 ## Features
 
@@ -303,7 +338,7 @@ For developers, contributors, or those wanting to understand the internals:
 
 - **[BACKEND.md](BACKEND.md)** - Backend architecture, database schemas, API endpoints, verification system
 - **[FRONTEND.md](FRONTEND.md)** - Frontend architecture, components, views, styling
-- **[CLAUDE.md](CLAUDE.md)** - AI assistant development guide
+- **[CLAUDE.md](../CLAUDE.md)** - AI assistant development guide
 
 ## Requirements
 
