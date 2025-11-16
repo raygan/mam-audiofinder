@@ -39,9 +39,23 @@ export class HistoryView {
    * Load and display history
    */
   async load() {
+    console.log('[HistoryView] load() called at', new Date().toISOString());
     try {
       const data = await api.getHistory();
+      console.log('[HistoryView] Received data:', data);
       const items = data.items || [];
+      console.log('[HistoryView] Items count:', items.length);
+
+      if (items.length > 0) {
+        console.log('[HistoryView] First item:', {
+          title: items[0].title,
+          qb_status: items[0].qb_status,
+          qb_status_color: items[0].qb_status_color,
+          qb_hash: items[0].qb_hash,
+          qb_progress: items[0].qb_progress,
+          path_warning: items[0].path_warning
+        });
+      }
 
       this.elements.tbody.innerHTML = '';
 
@@ -57,7 +71,7 @@ export class HistoryView {
 
       this.elements.card.style.display = '';
     } catch (e) {
-      console.error('history load failed', e);
+      console.error('[HistoryView] history load failed', e);
     }
   }
 
@@ -77,6 +91,13 @@ export class HistoryView {
    * @param {Object} h - History item data
    */
   createHistoryRow(h) {
+    console.log('[HistoryView] createHistoryRow for:', {
+      title: h.title,
+      qb_status: h.qb_status,
+      qb_status_color: h.qb_status_color,
+      qb_hash: h.qb_hash
+    });
+
     const tr = document.createElement('tr');
     const when = h.added_at ? new Date(h.added_at.replace(' ', 'T') + 'Z').toLocaleString() : '';
     const linkURL = h.mam_id ? `https://www.myanonamouse.net/t/${encodeURIComponent(h.mam_id)}` : '';
@@ -106,6 +127,12 @@ export class HistoryView {
       'red': '#e74c3c'
     };
     const statusStyle = `color: ${colorMap[statusColor] || '#999'}; font-weight: 500;`;
+
+    console.log('[HistoryView] Status rendering:', {
+      statusColor,
+      statusStyle,
+      qb_status: h.qb_status
+    });
 
     // Path warning indicator
     const pathWarningIcon = h.path_warning
@@ -224,6 +251,7 @@ export class HistoryView {
    * Start auto-refreshing the history view to show live torrent states
    */
   startAutoRefresh() {
+    console.log('[HistoryView] startAutoRefresh() called');
     this.isActive = true;
 
     // Clear any existing interval
@@ -232,20 +260,24 @@ export class HistoryView {
     // Refresh every 5 seconds to show live download progress
     this.refreshInterval = setInterval(() => {
       if (this.isActive) {
+        console.log('[HistoryView] Auto-refresh tick - calling load()');
         this.load();
       }
     }, 5000);
+    console.log('[HistoryView] Auto-refresh started with interval:', this.refreshInterval);
   }
 
   /**
    * Stop auto-refreshing when view is not active
    */
   stopAutoRefresh() {
+    console.log('[HistoryView] stopAutoRefresh() called, isActive:', this.isActive, 'interval:', this.refreshInterval);
     this.isActive = false;
 
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
+      console.log('[HistoryView] Auto-refresh stopped');
     }
   }
 }

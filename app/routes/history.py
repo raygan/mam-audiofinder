@@ -19,6 +19,10 @@ router = APIRouter()
 @router.get("/history")
 def history():
     """Get history of added torrents with live torrent states."""
+    import logging
+    logger = logging.getLogger("mam-audiofinder")
+    logger.info("[HISTORY] /history endpoint called")
+
     # Fetch all history items
     with engine.begin() as cx:
         rows = cx.execute(text("""
@@ -29,17 +33,17 @@ def history():
             LIMIT 200
         """)).mappings().all()
 
+    logger.info(f"[HISTORY] Found {len(rows)} history items in database")
     items = []
 
     # Enrich with live torrent data
     with httpx.Client(timeout=30) as client:
         try:
             qb_login_sync(client)
+            logger.info("[HISTORY] Successfully logged into qBittorrent")
         except Exception as e:
             # If qBittorrent is unreachable, return basic data without enrichment
-            import logging
-            logger = logging.getLogger("mam-audiofinder")
-            logger.error(f"qBittorrent login failed in /history: {e}")
+            logger.error(f"[HISTORY] qBittorrent login failed in /history: {e}")
 
             # Return rows with default status indicators
             enriched_items = []
@@ -65,8 +69,10 @@ def history():
             item["path_valid"] = True
 
             if qb_hash:
+                logger.info(f"[HISTORY] Processing item with hash: {qb_hash}, title: {item.get('title')}")
                 # Fetch live state
                 torrent_state = get_torrent_state(qb_hash, client)
+                logger.info(f"[HISTORY] Torrent state for {qb_hash}: {torrent_state}")
 
                 if torrent_state:
                     # Map state to display format
@@ -74,6 +80,7 @@ def history():
                         torrent_state.get("state", ""),
                         torrent_state.get("progress", 0)
                     )
+                    logger.info(f"[HISTORY] Mapped state: {display_state}, color: {color}")
                     item["qb_status"] = display_state
                     item["qb_status_color"] = color
                     item["qb_progress"] = torrent_state.get("progress", 0)
@@ -89,12 +96,20 @@ def history():
                     # Override color to red if path is invalid
                     if not path_validation["is_valid"]:
                         item["qb_status_color"] = "red"
+                        logger.info(f"[HISTORY] Path invalid for {qb_hash}, overriding color to red")
                 else:
                     # Torrent not found in qBittorrent
+                    logger.warning(f"[HISTORY] Torrent not found in qBittorrent: {qb_hash}")
                     item["qb_status"] = "Not Found"
                     item["qb_status_color"] = "grey"
+            else:
+                logger.info(f"[HISTORY] Item has no qb_hash: {item.get('title')}")
 
             items.append(item)
+
+    logger.info(f"[HISTORY] Returning {len(items)} items with enriched data")
+    if items:
+        logger.info(f"[HISTORY] First item sample: title={items[0].get('title')}, qb_status={items[0].get('qb_status')}, qb_status_color={items[0].get('qb_status_color')}")
 
     return {"items": items}
 
