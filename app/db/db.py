@@ -148,19 +148,20 @@ def run_migrations():
                 # Split into individual statements (handles multi-statement files)
                 statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
 
-                # Execute each statement independently (idempotent migrations)
-                with target_engine.begin() as cx:
-                    for statement in statements:
-                        try:
+                # Execute each statement in its own transaction (SQLite requirement)
+                # This prevents one failed statement from invalidating subsequent ones
+                for statement in statements:
+                    try:
+                        with target_engine.begin() as cx:
                             cx.execute(text(statement))
-                        except Exception as e:
-                            # Log but don't fail - allows idempotent migrations
-                            # (e.g., "ALTER TABLE ADD COLUMN" on already existing column)
-                            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
-                                logger.debug(f"    ⊘ Skipped (already exists): {statement[:50]}...")
-                            else:
-                                logger.warning(f"    ⚠️  Error executing statement: {e}")
-                                logger.debug(f"    Statement: {statement}")
+                    except Exception as e:
+                        # Log but don't fail - allows idempotent migrations
+                        # (e.g., "ALTER TABLE ADD COLUMN" on already existing column)
+                        if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                            logger.debug(f"    ⊘ Skipped (already exists): {statement[:50]}...")
+                        else:
+                            logger.warning(f"    ⚠️  Error executing statement: {e}")
+                            logger.debug(f"    Statement: {statement}")
 
             with target_engine.begin() as cx:
                 cx.execute(
