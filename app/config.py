@@ -58,7 +58,7 @@ ABS_LIBRARY_CACHE_TTL = int(os.getenv("ABS_LIBRARY_CACHE_TTL", "300"))  # Cache 
 
 # ---------------------------- Hardcover API Configuration ----------------------------
 HARDCOVER_API_TOKEN = os.getenv("HARDCOVER_API_TOKEN", "")
-HARDCOVER_BASE_URL = "https://api.hardcover.app/graphql"
+HARDCOVER_BASE_URL = "https://api.hardcover.app/v1/graphql"
 HARDCOVER_CACHE_TTL = int(os.getenv("HARDCOVER_CACHE_TTL", "300"))  # Cache duration in seconds (default: 5 minutes)
 HARDCOVER_RATE_LIMIT = int(os.getenv("HARDCOVER_RATE_LIMIT", "60"))  # Requests per minute (API limit: 60/min)
 

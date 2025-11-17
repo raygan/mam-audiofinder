@@ -3,7 +3,7 @@
 **⚠️ IMPORTANT:** The Hardcover API is a **GraphQL API**, not a REST API. All queries are made via GraphQL to a single endpoint.
 
 **Official Documentation:** https://docs.hardcover.app/api/getting-started/
-**API Endpoint:** `https://api.hardcover.app/graphql`
+**API Endpoint:** `https://api.hardcover.app/v1/graphql`
 **API Status:** Beta (actively being developed)
 
 This document summarizes the Hardcover GraphQL API's capabilities, authentication, and usage patterns.
@@ -43,7 +43,7 @@ Authorization: Bearer YOUR_API_TOKEN
 ```python
 headers = {"Authorization": f"Bearer {your_api_token}"}
 response = await client.post(
-    "https://api.hardcover.app/graphql",
+    "https://api.hardcover.app/v1/graphql",
     headers=headers,
     json={"query": your_graphql_query}
 )
@@ -133,7 +133,7 @@ class HardcoverRateLimiter:
 
 ## GraphQL Endpoint
 
-**URL:** `https://api.hardcover.app/graphql`
+**URL:** `https://api.hardcover.app/v1/graphql`
 **Method:** `POST`
 **Content-Type:** `application/json`
 

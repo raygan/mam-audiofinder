@@ -78,6 +78,13 @@ async def search_series(request: SeriesSearchRequest):
             limit=request.limit
         )
 
+        # Check if API call failed
+        if series_results is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Hardcover API request failed. Check logs for details."
+            )
+
         from datetime import datetime
         response = {
             "query": {

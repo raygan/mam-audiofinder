@@ -87,10 +87,15 @@ async def test_series_search(query="Mistborn", author="", limit=5):
             limit=limit
         )
 
+        # Check if API call failed (returns None)
+        if results is None:
+            print("\n❌ API call failed - check logs above for details")
+            return False
+
         print(f"\n✅ Search returned {len(results)} results\n")
 
         if not results:
-            print("ℹ️  No series found matching query")
+            print("ℹ️  No series found matching query (this is OK)")
             return True
 
         for i, series in enumerate(results, 1):
@@ -118,6 +123,9 @@ async def test_series_books(series_id=None):
         print_header("Finding a test series...")
         try:
             results = await hardcover_client.search_series("Stormlight", limit=1)
+            if results is None:
+                print("❌ API call failed when searching for test series")
+                return False
             if not results:
                 print("⚠️  Could not find test series, skipping books test")
                 return True
@@ -186,7 +194,10 @@ async def test_rate_limiting():
         # Send 3 rapid search requests
         for i in range(3):
             print(f"\n  Request {i+1}...")
-            await hardcover_client.search_series("Test", limit=1)
+            result = await hardcover_client.search_series("Test", limit=1)
+            if result is None:
+                print(f"    ❌ Request {i+1} failed")
+                return False
 
         elapsed = time.time() - start
         print(f"\n✓ Completed 3 requests in {elapsed:.2f}s")
@@ -221,6 +232,9 @@ async def test_caching():
         start1 = time.time()
         result1 = await hardcover_client.search_series("Mistborn", limit=3)
         time1 = time.time() - start1
+        if result1 is None:
+            print("  ❌ First request failed")
+            return False
         print(f"  ✓ Completed in {time1:.3f}s")
 
         # Second request (should hit cache)
@@ -228,6 +242,9 @@ async def test_caching():
         start2 = time.time()
         result2 = await hardcover_client.search_series("Mistborn", limit=3)
         time2 = time.time() - start2
+        if result2 is None:
+            print("  ❌ Second request failed")
+            return False
         print(f"  ✓ Completed in {time2:.3f}s")
 
         # Compare results
