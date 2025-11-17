@@ -24,10 +24,10 @@ This roadmap enumerates the concurrent-ready tasks AI assistants can execute to 
 4. `[SEQ]` Define cache + persistence strategy (SQLite table or in-memory TTL store) so repeated UI clicks avoid exceeding rate limits.
 
 ## Phase 3 — Series Tab & Card Rendering
-1. `[SEQ]` Create a Series tab entry in the top-level navigation routed to a new template using the card helper components.
-2. `[CON]` Display Hardcover search matches as a list/grid with lazy-loaded covers and include metadata chips (book count, avg length, match score).
-3. `[CON]` When a series row is clicked, fetch `list_series_books` and render book cards (reuse existing card helper) while preserving the originating search query for breadcrumbs.
-4. `[SEQ]` Handle empty/error states (rate limit hit, missing data) with reusable toasts and log entries.
+1. `[SEQ]` Add the `/series` route + template, mirror the nav button in `base.html`, and load a new `series.js` page controller that listens for the existing `series-search` events so search/history/showcase cards can summon the Series view inline or via the slide-over.
+2. `[CON]` Build `SeriesView` with a table-first UX: render Hardcover matches in a sortable table, surface the “Search #” selector (allowed values `5,10,20,30,40,50`) that stays in sync with the backend `limit`, and persist `q/limit` through the Router for deep links.
+3. `[CON]` On row click, fetch `/api/series/{id}/books`, render those books as cards via `cardHelper` (lazy-loaded covers, normalized titles, MAM availability badges) beneath the table or inside the modal detail panel, and keep breadcrumbs back to the originating query.
+4. `[SEQ]` Introduce reusable toast/error messaging so rate-limit hits (Hardcover 429/503) inform the user, reset the `series-search` buttons appropriately, and log the failures; ensure the modal/drawer can be dismissed or retried without a page refresh.
 
 ## Phase 4 — Multi-Book Download & Import Pipeline
 1. `[SEQ]` Extend import planning logic to accept multiple book payloads per torrent without altering the disk-flattening helper contracts.
