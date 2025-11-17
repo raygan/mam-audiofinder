@@ -114,12 +114,74 @@ def read_metadata_json(directory: Path) -> dict:
         return {}
 
 
+def insert_torrent_book(
+    torrent_hash: str,
+    history_id: int,
+    book_title: str,
+    book_author: str,
+    position: int | None,
+    subdirectory: str,
+    series_name: str | None,
+    abs_item_id: str | None = None,
+    abs_verify_status: str | None = None,
+    abs_verify_note: str | None = None,
+) -> int:
+    """
+    Insert a torrent_books record linking a torrent to a book.
+    Returns: torrent_book_id (primary key of inserted row)
+    """
+    with engine.begin() as conn:
+        result = conn.execute(
+            text("""
+                INSERT INTO torrent_books (
+                    torrent_hash, history_id, position, subdirectory,
+                    book_title, book_author, series_name,
+                    imported_at, abs_item_id, abs_verify_status, abs_verify_note
+                ) VALUES (
+                    :torrent_hash, :history_id, :position, :subdirectory,
+                    :book_title, :book_author, :series_name,
+                    datetime('now'), :abs_item_id, :abs_verify_status, :abs_verify_note
+                )
+            """),
+            {
+                "torrent_hash": torrent_hash,
+                "history_id": history_id,
+                "position": position,
+                "subdirectory": subdirectory,
+                "book_title": book_title,
+                "book_author": book_author,
+                "series_name": series_name,
+                "abs_item_id": abs_item_id,
+                "abs_verify_status": abs_verify_status,
+                "abs_verify_note": abs_verify_note,
+            }
+        )
+        return result.lastrowid
+
+
 class ImportBody(BaseModel):
     """Request body for importing torrent."""
     author: str
     title: str
     hash: str
     history_id: int | None = None
+    flatten: bool | None = None  # If None, uses global FLATTEN_DISCS setting
+
+
+class BookPayload(BaseModel):
+    """Single book within a multi-book torrent."""
+    title: str
+    author: str
+    subdirectory: str  # Relative path within torrent root (e.g., "Book 1 - Title")
+    position: int | None = None  # Book position in series (optional)
+    series_name: str | None = None  # Series name if applicable
+
+
+class MultiBookImportBody(BaseModel):
+    """Request body for importing multiple books from single torrent."""
+    torrent_hash: str
+    history_id: int  # Primary history entry for the torrent
+    books: list[BookPayload]  # List of books to import
     flatten: bool | None = None  # If None, uses global FLATTEN_DISCS setting
 
 
@@ -456,4 +518,328 @@ async def do_import(body: ImportBody):
         "import_mode": IMPORT_MODE,
         "flatten_applied": use_flatten,
         "verification": verification_result if verification_result else {"status": "not_attempted"}
+    }
+
+
+@router.post("/import/multi-book")
+async def do_multi_book_import(body: MultiBookImportBody):
+    """
+    Import multiple books from a single torrent to library.
+
+    Each book is imported to a separate directory and verified individually.
+    Disc flattening is applied per book, preserving the helper contracts.
+    """
+    import asyncio
+
+    torrent_hash = body.torrent_hash
+    use_flatten = body.flatten if body.flatten is not None else FLATTEN_DISCS
+
+    # Query qBittorrent for torrent information
+    with httpx.Client(timeout=30) as c:
+        qb_login_sync(c)
+
+        # Get torrent info to find content_path (torrent root directory)
+        ir = c.get(f"{QB_URL}/api/v2/torrents/info", params={"hashes": torrent_hash})
+        if ir.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"[QB-001] Cannot connect to qBittorrent\n"
+                    f"API endpoint: {QB_URL}/api/v2/torrents/info\n"
+                    f"Status code: {ir.status_code}\n"
+                    f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#qb-001-cannot-connect-to-qbittorrent"
+                )
+            )
+
+        info_list = ir.json()
+        if not isinstance(info_list, list) or not info_list:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[IMPORT-003] Torrent not found\n"
+                    f"Torrent hash: {torrent_hash}\n"
+                    f"The torrent may have been removed from qBittorrent."
+                )
+            )
+
+        info = info_list[0]
+        content_path = info.get("content_path") or ""
+        if not content_path:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"[IMPORT-003] Torrent content path not found\n"
+                    f"Torrent hash: {torrent_hash}\n"
+                    f"qBittorrent may not have metadata for this torrent."
+                )
+            )
+
+    # Map qB's internal paths to this container's paths
+    def map_qb_path(p: str) -> str:
+        prefix = QB_INNER_DL_PREFIX.rstrip("/")
+        if p == prefix or p.startswith(prefix + "/"):
+            return p.replace(QB_INNER_DL_PREFIX, DL_DIR, 1)
+        if p.startswith("/media/"):
+            return p
+        p = p.replace("/mnt/user/media", "/media", 1)
+        p = p.replace("/mnt/media", "/media", 1)
+        return p
+
+    torrent_root = Path(map_qb_path(content_path))
+
+    # Validate torrent root exists
+    if not torrent_root.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"[PATH-MISMATCH-001] Torrent root path not found\n"
+                f"Container path: {torrent_root}\n"
+                f"qBittorrent reports: {content_path}\n"
+                f"See: https://github.com/magrhino/mam-audiofinder/blob/main/ERRORS.md#path-mismatch-001-source-path-not-found"
+            )
+        )
+
+    # Process each book
+    results = []
+    total_files_copied = 0
+    total_files_linked = 0
+    total_files_moved = 0
+
+    for book in body.books:
+        book_result = {
+            "book_title": book.title,
+            "book_author": book.author,
+            "subdirectory": book.subdirectory,
+            "position": book.position,
+            "ok": False,
+            "error": None,
+            "dest": None,
+            "files_copied": 0,
+            "files_linked": 0,
+            "files_moved": 0,
+            "verification": {"status": "not_attempted"},
+            "abs_item_id": None,
+        }
+
+        try:
+            # Sanitize book metadata
+            author = sanitize(book.author)
+            title = sanitize(book.title)
+
+            # Source: torrent_root / subdirectory
+            src_root = torrent_root / book.subdirectory
+
+            if not src_root.exists():
+                book_result["error"] = f"Subdirectory not found: {book.subdirectory}"
+                results.append(book_result)
+                logger.warning(f"⚠️  Book subdirectory not found: {src_root}")
+                continue
+
+            # Destination: /library/Author/Title
+            lib = Path(LIB_DIR)
+            author_dir = lib / author
+            try:
+                author_dir.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                book_result["error"] = f"Cannot create author directory: {str(e)}"
+                results.append(book_result)
+                logger.error(f"❌ Cannot create author directory {author_dir}: {e}")
+                continue
+
+            dest_dir = next_available(author_dir / title)
+            book_result["dest"] = str(dest_dir)
+
+            # Copy/link files with disc flattening PER BOOK
+            files_copied = 0
+            files_linked = 0
+            files_moved = 0
+
+            if src_root.is_file():
+                # Single file case
+                if src_root.suffix.lower() != ".cue":
+                    action = copy_one(src_root, dest_dir / src_root.name)
+                    files_copied = 1
+                    if action == "linked":
+                        files_linked = 1
+                    elif action == "moved":
+                        files_moved = 1
+            else:
+                # Directory case: collect audio files
+                audio_files = []
+                for p in src_root.rglob("*"):
+                    if not p.is_file():
+                        continue
+                    if p.suffix.lower() == ".cue":
+                        continue
+                    audio_files.append(p)
+
+                # Apply disc flattening WITHIN this book's directory
+                if use_flatten and audio_files:
+                    files_with_info = []
+                    for p in audio_files:
+                        disc_num, track_num, ext = extract_disc_track(p, src_root)
+                        files_with_info.append((disc_num, track_num, ext, p))
+
+                    # Sort by disc, then track
+                    files_with_info.sort(key=lambda x: (x[0], x[1]))
+
+                    # Copy with sequential naming (preserves flattening contract)
+                    for idx, (disc_num, track_num, ext, src_path) in enumerate(files_with_info, start=1):
+                        new_name = f"Part {idx:03d}{ext}"
+                        action = copy_one(src_path, dest_dir / new_name)
+                        files_copied += 1
+                        if action == "linked":
+                            files_linked += 1
+                        elif action == "moved":
+                            files_moved += 1
+                else:
+                    # Preserve directory structure
+                    for p in audio_files:
+                        rel = p.relative_to(src_root)
+                        action = copy_one(p, dest_dir / rel)
+                        files_copied += 1
+                        if action == "linked":
+                            files_linked += 1
+                        elif action == "moved":
+                            files_moved += 1
+
+            if files_copied == 0:
+                book_result["error"] = "No audio files found in subdirectory"
+                results.append(book_result)
+                logger.warning(f"⚠️  No audio files found in {src_root}")
+                continue
+
+            book_result["files_copied"] = files_copied
+            book_result["files_linked"] = files_linked
+            book_result["files_moved"] = files_moved
+            total_files_copied += files_copied
+            total_files_linked += files_linked
+            total_files_moved += files_moved
+
+            # Wait for metadata.json (ABS scan)
+            metadata = {}
+            max_wait_attempts = 6
+            for attempt in range(1, max_wait_attempts + 1):
+                metadata = read_metadata_json(dest_dir)
+                if metadata:
+                    logger.info(f"📖 Found metadata.json for '{title}' on attempt {attempt}")
+                    break
+                elif attempt < max_wait_attempts:
+                    wait_time = 5
+                    logger.info(f"⏳ Waiting {wait_time}s for metadata.json for '{title}' (attempt {attempt}/{max_wait_attempts})")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.info(f"ℹ️  No metadata.json for '{title}' after {max_wait_attempts} attempts")
+
+            # Verify in Audiobookshelf (per book)
+            verification_result = None
+            abs_item_id = None
+            abs_verify_status = None
+            abs_verify_note = None
+
+            try:
+                verify_title = metadata.get("title", title) if metadata else title
+                verify_authors = metadata.get("authors", [author]) if metadata else [author]
+                verify_author = ", ".join(verify_authors) if verify_authors else author
+
+                logger.info(f"🔍 Starting ABS verification for '{verify_title}' by '{verify_author}'")
+
+                verification_result = await abs_client.verify_import(
+                    title=verify_title,
+                    author=verify_author,
+                    library_path=str(dest_dir),
+                    metadata=metadata
+                )
+
+                abs_verify_status = verification_result.get("status")
+                abs_verify_note = verification_result.get("note")
+                abs_item_id = verification_result.get("abs_item_id")
+
+                book_result["verification"] = verification_result
+                book_result["abs_item_id"] = abs_item_id
+
+                # Log verification outcome
+                status = abs_verify_status or "unknown"
+                if status == "verified":
+                    logger.info(f"✅ Verification successful for '{title}': {abs_verify_note}")
+                elif status == "mismatch":
+                    logger.warning(f"⚠️  Verification mismatch for '{title}': {abs_verify_note}")
+                elif status == "not_found":
+                    logger.warning(f"⚠️  Not found in ABS for '{title}': {abs_verify_note}")
+                else:
+                    logger.info(f"ℹ️  Verification status '{status}' for '{title}': {abs_verify_note}")
+
+            except Exception as e:
+                logger.error(f"❌ Verification failed for '{title}': {type(e).__name__}: {e}")
+                abs_verify_status = "unreachable"
+                abs_verify_note = f"Verification error: {type(e).__name__}"
+                book_result["verification"] = {"status": abs_verify_status, "note": abs_verify_note}
+
+            # Insert torrent_books record
+            try:
+                torrent_book_id = insert_torrent_book(
+                    torrent_hash=torrent_hash,
+                    history_id=body.history_id,
+                    book_title=book.title,
+                    book_author=book.author,
+                    position=book.position,
+                    subdirectory=book.subdirectory,
+                    series_name=book.series_name,
+                    abs_item_id=abs_item_id,
+                    abs_verify_status=abs_verify_status,
+                    abs_verify_note=abs_verify_note,
+                )
+                logger.info(f"📝 Created torrent_books record #{torrent_book_id} for '{title}'")
+            except Exception as e:
+                logger.error(f"❌ Failed to insert torrent_books record for '{title}': {e}")
+                # Don't fail the import, just log
+
+            book_result["ok"] = True
+            results.append(book_result)
+            logger.info(f"✅ Successfully imported book '{title}' by '{author}'")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to import book '{book.title}': {type(e).__name__}: {e}")
+            book_result["error"] = f"{type(e).__name__}: {str(e)}"
+            results.append(book_result)
+
+    # Update primary history entry with overall status
+    try:
+        with engine.begin() as cx:
+            cx.execute(
+                text("UPDATE history SET qb_status='imported', imported_at=:ts WHERE id=:id"),
+                {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "id": body.history_id},
+            )
+    except Exception as e:
+        logger.error(f"❌ Failed to update history entry #{body.history_id}: {e}")
+
+    # Post-import: change qB category (best effort)
+    if torrent_hash and QB_URL:
+        try:
+            with httpx.Client(timeout=15) as c2:
+                qb_login_sync(c2)
+                c2.post(
+                    f"{QB_URL}/api/v2/torrents/setCategory",
+                    data={"hashes": torrent_hash, "category": QB_POSTIMPORT_CATEGORY},
+                )
+        except Exception:
+            pass
+
+    # Calculate success/failure counts
+    success_count = sum(1 for r in results if r["ok"])
+    failure_count = len(results) - success_count
+
+    return {
+        "ok": True,
+        "torrent_hash": torrent_hash,
+        "history_id": body.history_id,
+        "books_processed": len(results),
+        "books_succeeded": success_count,
+        "books_failed": failure_count,
+        "total_files_copied": total_files_copied,
+        "total_files_linked": total_files_linked,
+        "total_files_moved": total_files_moved,
+        "import_mode": IMPORT_MODE,
+        "flatten_applied": use_flatten,
+        "results": results,
     }

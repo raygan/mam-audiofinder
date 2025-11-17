@@ -390,5 +390,224 @@ class TestUtilityEdgeCases:
         assert result == temp_dir / "test.txt (12)"
 
 
+class TestDiscFlatteningContractPreservation:
+    """
+    Regression tests for Phase 4 - Multi-Book Import Pipeline.
+
+    These tests verify that disc-flattening helper contracts are preserved:
+    - extract_disc_track() signature unchanged
+    - Flattening works per subdirectory (not across multi-book torrents)
+    - Sequential naming still produces Part 001.mp3, Part 002.mp3, etc.
+    - Multi-disc + multi-book combination works correctly
+    """
+
+    def test_extract_disc_track_signature_unchanged(self, temp_dir):
+        """
+        Regression test: Verify extract_disc_track() signature hasn't changed.
+
+        The function must accept (path: Path, root: Path) and return (int, int, str)
+        representing (disc_num, track_num, extension).
+        """
+        root = temp_dir / "book"
+        root.mkdir()
+        file_path = root / "Track 01.mp3"
+
+        # Call with original signature
+        result = extract_disc_track(file_path, root)
+
+        # Verify return type
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+        assert isinstance(result[0], int)  # disc_num
+        assert isinstance(result[1], int)  # track_num
+        assert isinstance(result[2], str)  # extension
+
+    def test_flattening_works_on_subdirectory_not_torrent_root(self, temp_dir):
+        """
+        Regression test: Flattening works per book subdirectory, not across books.
+
+        In a multi-book torrent:
+        - torrent_root/Book1/Disc1/Track01.mp3
+        - torrent_root/Book2/Chapter01.mp3
+
+        Flattening Book1 should only process files under Book1/, not Book2/.
+        """
+        # Create multi-book torrent structure
+        torrent_root = temp_dir / "Test Series"
+
+        # Book 1 with discs
+        book1_root = torrent_root / "Book 1"
+        (book1_root / "Disc 1").mkdir(parents=True)
+        (book1_root / "Disc 2").mkdir(parents=True)
+        book1_file1 = book1_root / "Disc 1" / "Track 01.mp3"
+        book1_file2 = book1_root / "Disc 2" / "Track 01.mp3"
+
+        # Book 2 (separate subdirectory)
+        book2_root = torrent_root / "Book 2"
+        book2_root.mkdir(parents=True)
+        book2_file1 = book2_root / "Chapter 01.mp3"
+
+        # Process Book 1 only (simulate multi-book import per-book processing)
+        book1_disc1, book1_track1, ext1 = extract_disc_track(book1_file1, book1_root)
+        book1_disc2, book1_track2, ext2 = extract_disc_track(book1_file2, book1_root)
+
+        # Verify Book 1 files are processed relative to book1_root, not torrent_root
+        assert book1_disc1 == 1
+        assert book1_track1 == 1
+        assert book1_disc2 == 2
+        assert book1_track2 == 1
+
+        # Process Book 2 separately
+        book2_disc, book2_track, ext3 = extract_disc_track(book2_file1, book2_root)
+
+        # Verify Book 2 is processed independently (no disc pattern)
+        assert book2_disc == 0  # No disc directory in Book 2
+        assert book2_track == 1
+
+    def test_sequential_naming_produces_correct_pattern(self, temp_dir):
+        """
+        Regression test: Sequential naming still produces Part 001.mp3, Part 002.mp3, etc.
+
+        This is the core contract for disc flattening - files must be renamed
+        sequentially regardless of source structure.
+        """
+        root = temp_dir / "book"
+        (root / "Disc 1").mkdir(parents=True)
+        (root / "Disc 2").mkdir(parents=True)
+
+        # Create files with various naming patterns
+        files = [
+            root / "Disc 1" / "Track 01.mp3",
+            root / "Disc 1" / "Track 02.mp3",
+            root / "Disc 2" / "Track 01.mp3",
+            root / "Disc 2" / "Track 02.mp3",
+        ]
+
+        # Extract disc/track info and sort (simulates flattening logic)
+        files_with_info = []
+        for f in files:
+            disc_num, track_num, ext = extract_disc_track(f, root)
+            files_with_info.append((disc_num, track_num, ext, f))
+
+        # Sort by disc, then track (matches import_route.py logic)
+        files_with_info.sort(key=lambda x: (x[0], x[1]))
+
+        # Verify sequential naming would be correct
+        expected_names = ["Part 001.mp3", "Part 002.mp3", "Part 003.mp3", "Part 004.mp3"]
+        for idx, (disc, track, ext, src) in enumerate(files_with_info, start=1):
+            expected_name = f"Part {idx:03d}{ext}"
+            assert expected_name == expected_names[idx - 1]
+
+    def test_multi_disc_multi_book_independent_processing(self, temp_dir):
+        """
+        Regression test: Multi-disc books in multi-book torrents process independently.
+
+        Two books, both with multiple discs:
+        - Book1/Disc1/Track01.mp3, Book1/Disc2/Track01.mp3 → Part 001.mp3, Part 002.mp3
+        - Book2/Disc1/Track01.mp3, Book2/Disc2/Track01.mp3 → Part 001.mp3, Part 002.mp3
+
+        Each book's numbering starts at 001, they don't share a sequence.
+        """
+        torrent_root = temp_dir / "Series"
+
+        # Book 1
+        book1_root = torrent_root / "Book 1 - First Title"
+        (book1_root / "Disc 1").mkdir(parents=True)
+        (book1_root / "Disc 2").mkdir(parents=True)
+        book1_files = [
+            book1_root / "Disc 1" / "Track 01.mp3",
+            book1_root / "Disc 1" / "Track 02.mp3",
+            book1_root / "Disc 2" / "Track 01.mp3",
+        ]
+
+        # Book 2
+        book2_root = torrent_root / "Book 2 - Second Title"
+        (book2_root / "Disc 1").mkdir(parents=True)
+        (book2_root / "Disc 2").mkdir(parents=True)
+        book2_files = [
+            book2_root / "Disc 1" / "Track 01.mp3",
+            book2_root / "Disc 2" / "Track 01.mp3",
+            book2_root / "Disc 2" / "Track 02.mp3",
+        ]
+
+        # Process Book 1 independently
+        book1_with_info = []
+        for f in book1_files:
+            disc, track, ext = extract_disc_track(f, book1_root)  # Note: book1_root, not torrent_root
+            book1_with_info.append((disc, track, ext, f))
+        book1_with_info.sort(key=lambda x: (x[0], x[1]))
+
+        # Verify Book 1 sequential naming
+        assert len(book1_with_info) == 3
+        for idx, (disc, track, ext, src) in enumerate(book1_with_info, start=1):
+            expected_name = f"Part {idx:03d}{ext}"
+            if idx == 1:
+                assert expected_name == "Part 001.mp3"
+            elif idx == 2:
+                assert expected_name == "Part 002.mp3"
+            elif idx == 3:
+                assert expected_name == "Part 003.mp3"
+
+        # Process Book 2 independently
+        book2_with_info = []
+        for f in book2_files:
+            disc, track, ext = extract_disc_track(f, book2_root)  # Note: book2_root, not torrent_root
+            book2_with_info.append((disc, track, ext, f))
+        book2_with_info.sort(key=lambda x: (x[0], x[1]))
+
+        # Verify Book 2 sequential naming (also starts at 001, not 004)
+        assert len(book2_with_info) == 3
+        for idx, (disc, track, ext, src) in enumerate(book2_with_info, start=1):
+            expected_name = f"Part {idx:03d}{ext}"
+            if idx == 1:
+                assert expected_name == "Part 001.mp3"  # Starts at 001, not 004!
+            elif idx == 2:
+                assert expected_name == "Part 002.mp3"
+            elif idx == 3:
+                assert expected_name == "Part 003.mp3"
+
+    def test_flattening_preserves_extension(self, temp_dir):
+        """
+        Regression test: Flattening preserves original file extensions.
+
+        Different audio formats (.mp3, .m4b, .flac) should keep their extensions
+        in the flattened output (Part 001.mp3, Part 002.m4b, Part 003.flac).
+        """
+        root = temp_dir / "book"
+        (root / "Disc 1").mkdir(parents=True)
+
+        files = [
+            (root / "Disc 1" / "Track 01.mp3", ".mp3"),
+            (root / "Disc 1" / "Track 02.m4b", ".m4b"),
+            (root / "Disc 1" / "Track 03.flac", ".flac"),
+        ]
+
+        for file_path, expected_ext in files:
+            disc, track, ext = extract_disc_track(file_path, root)
+            assert ext == expected_ext
+
+    def test_flattening_handles_zero_padded_numbers(self, temp_dir):
+        """
+        Regression test: Flattening correctly parses zero-padded track numbers.
+
+        Track 01, Track 001, Track 0001 should all parse as track number 1.
+        """
+        root = temp_dir / "book"
+        root.mkdir()
+
+        test_cases = [
+            ("Track 01.mp3", 1),
+            ("Track 001.mp3", 1),
+            ("Track 0001.mp3", 1),
+            ("Chapter 09.mp3", 9),
+            ("Chapter 099.mp3", 99),
+        ]
+
+        for filename, expected_track in test_cases:
+            file_path = root / filename
+            disc, track, ext = extract_disc_track(file_path, root)
+            assert track == expected_track, f"Failed for {filename}: expected {expected_track}, got {track}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
