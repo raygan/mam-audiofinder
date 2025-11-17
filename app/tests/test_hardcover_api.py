@@ -4,12 +4,14 @@ Test Hardcover API integration.
 Run this inside the container to verify Hardcover API configuration and connectivity.
 
 Usage:
-    python test_hardcover_api.py                    # Run all tests
-    python test_hardcover_api.py --search "Mistborn" # Test series search only
-    python test_hardcover_api.py --series 12345     # Test series books only
-    python test_hardcover_api.py --author "Brandon Sanderson" # Test author search
-    python test_hardcover_api.py --framework basic  # Run specific framework tests
-    python test_hardcover_api.py --limits           # Test limit variations
+    python test_hardcover_api.py                         # Run all tests
+    python test_hardcover_api.py --search "Mistborn"     # Test series search only
+    python test_hardcover_api.py --series 12345          # Test series books only
+    python test_hardcover_api.py --series-limits 997     # Test series books with limit variations
+    python test_hardcover_api.py --author "Brandon Sanderson"  # Test author search
+    python test_hardcover_api.py --framework basic       # Run basic framework tests
+    python test_hardcover_api.py --limits                # Test limit variations
+    python test_hardcover_api.py --fields                # Test field extraction
 """
 import sys
 import asyncio
@@ -147,7 +149,7 @@ async def test_series_search(query="Mistborn", author="", limit=5):
         return False
 
 
-async def test_series_books(series_id=None):
+async def test_series_books(series_id=None, show_stats=True):
     """Test fetching books for a series."""
     if series_id is None:
         # First search for a series to test with
@@ -173,6 +175,10 @@ async def test_series_books(series_id=None):
         return False
 
     try:
+        if show_stats:
+            start_req = hardcover_client.get_request_count()
+            start_cache = hardcover_client.get_cache_hit_count()
+
         print(f"\n📚 Fetching books for series ID {series_id}...")
 
         result = await hardcover_client.list_series_books(series_id)
@@ -186,14 +192,133 @@ async def test_series_books(series_id=None):
         print(f"   Books: {len(result['books'])}\n")
 
         # Note: Books are now simple title strings (limited to 5) from search endpoint
-        print("   📚 Book titles (from search results, limited to top 5):")
+        print("   📚 Book titles:")
         for i, book_title in enumerate(result['books'], 1):
             print(f"      {i}. {book_title}")
+
+        if not result['books']:
+            print("      (no books returned)")
+
+        if show_stats:
+            print_request_stats(start_req, start_cache, f"Series Books (ID {series_id})")
 
         return True
 
     except Exception as e:
         print(f"\n❌ Books fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_series_books_limit_variations(series_id=997):
+    """Test fetching books for a specific series with different limit values.
+
+    Tests pagination and limit variations to explore how many books can be retrieved.
+    Default series_id=997 as requested by user.
+    """
+    print_header(f"Series Books Limit Variations Test: ID {series_id}")
+
+    if not hardcover_client.is_configured:
+        print("⚠️  Skipping test - Hardcover API not configured")
+        return False
+
+    # Track request statistics
+    start_req = hardcover_client.get_request_count()
+    start_cache = hardcover_client.get_cache_hit_count()
+
+    # Test different limit values when searching for the series
+    # The books array is limited by the search results
+    limits_to_test = [1, 5, 10, 20]
+
+    try:
+        # First, get the series info to know what we're testing
+        print(f"\n📚 Testing series ID {series_id} with various limits...")
+
+        basic_result = await hardcover_client.list_series_books(series_id)
+
+        if not basic_result:
+            print(f"❌ Series {series_id} not found")
+            return False
+
+        series_name = basic_result['series_name']
+        author_name = basic_result['author_name']
+
+        print(f"\n✅ Series: '{series_name}'")
+        print(f"   Author: {author_name}")
+        print(f"   Default books count: {len(basic_result['books'])}\n")
+
+        print("="*70)
+        print("Testing search with different limit values:")
+        print("="*70)
+
+        # Test searching with different limits
+        all_books = set()  # Track unique book titles
+
+        for limit in limits_to_test:
+            print(f"\n🔍 Test with limit={limit}")
+
+            # Search for this series by name with different limits
+            search_results = await hardcover_client.search_series(
+                title=series_name,
+                limit=limit
+            )
+
+            if search_results is None:
+                print(f"  ❌ Search failed for limit={limit}")
+                continue
+
+            if not search_results:
+                print(f"  ⚠️  No results for limit={limit}")
+                continue
+
+            # Find the matching series in results
+            matching_series = None
+            for result in search_results:
+                if str(result.get('series_id')) == str(series_id):
+                    matching_series = result
+                    break
+
+            if matching_series:
+                books = matching_series.get('books', [])
+                print(f"  ✅ Found series in results")
+                print(f"     Books returned: {len(books)}")
+                print(f"     Total results: {len(search_results)}")
+
+                # Add to our collection
+                for book in books:
+                    all_books.add(book)
+
+                # Show first few books
+                if books:
+                    print(f"     Sample books:")
+                    for i, book in enumerate(books[:3], 1):
+                        print(f"       {i}. {book}")
+                    if len(books) > 3:
+                        print(f"       ... (+{len(books)-3} more)")
+            else:
+                print(f"  ⚠️  Series {series_id} not in top {limit} results")
+
+            # Wait between requests
+            if limit != limits_to_test[-1]:
+                await asyncio.sleep(0.5)
+
+        print("\n" + "="*70)
+        print(f"📊 Summary:")
+        print(f"   Unique books discovered: {len(all_books)}")
+        print(f"   Limits tested: {limits_to_test}")
+        print("="*70)
+
+        if all_books:
+            print("\n📚 All unique book titles found:")
+            for i, book in enumerate(sorted(all_books), 1):
+                print(f"   {i}. {book}")
+
+        print_request_stats(start_req, start_cache, f"Series {series_id} Limit Variations")
+        return True
+
+    except Exception as e:
+        print(f"\n❌ Limit variations test failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -464,11 +589,10 @@ async def test_books_by_author(author="Brandon Sanderson", limit=10):
         start_req = hardcover_client.get_request_count()
         start_cache = hardcover_client.get_cache_hit_count()
 
-        # Test with different field combinations
+        # Test with different field combinations (only valid fields)
         field_sets = [
             ["title", "description"],
-            ["title", "series_names"],
-            ["title", "description", "series_names", "book_series"],
+            ["title"],
         ]
 
         for i, fields in enumerate(field_sets, 1):
@@ -513,58 +637,6 @@ async def test_books_by_author(author="Brandon Sanderson", limit=10):
         return False
 
 
-async def test_series_names_field():
-    """Test extraction of series_names field specifically."""
-    print_header("Series Names Field Test")
-
-    if not hardcover_client.is_configured:
-        print("⚠️  Skipping test - Hardcover API not configured")
-        return False
-
-    try:
-        start_req = hardcover_client.get_request_count()
-        start_cache = hardcover_client.get_cache_hit_count()
-
-        print(f"\n🔍 Searching for books with series_names field")
-
-        # Search for a known series author
-        results = await hardcover_client.search_books_by_author(
-            author_name="Brandon Sanderson",
-            limit=10,
-            fields=["title", "series_names"]
-        )
-
-        if results is None:
-            print("\n❌ API call failed")
-            print_request_stats(start_req, start_cache, "Series Names Field")
-            return False
-
-        print(f"\n✅ Retrieved {len(results)} books\n")
-
-        books_with_series = 0
-        for i, book in enumerate(results[:5], 1):
-            title = book.get('title', 'Unknown')
-            series_names = book.get('series_names', [])
-
-            print(f"Book #{i}: {title}")
-            if series_names:
-                books_with_series += 1
-                print_result("Series Names:", series_names, indent=1)
-            else:
-                print_result("Series Names:", "(none)", indent=1)
-            print()
-
-        print(f"📊 {books_with_series}/{len(results[:5])} books have series information")
-        print_request_stats(start_req, start_cache, "Series Names Field")
-        return True
-
-    except Exception as e:
-        print(f"\n❌ Series names field test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
 async def test_framework_basic():
     """Basic testing framework - simple searches with request counting."""
     print_header("Framework: Basic Tests")
@@ -602,109 +674,6 @@ async def test_framework_basic():
 
     except Exception as e:
         print(f"\n❌ Basic framework failed: {e}")
-        return False
-
-
-async def test_framework_author_focused():
-    """Author-focused testing framework - tests series discovery by author."""
-    print_header("Framework: Author-Focused Tests")
-
-    if not hardcover_client.is_configured:
-        print("⚠️  Skipping framework - Hardcover API not configured")
-        return False
-
-    # Reset counters for this framework
-    hardcover_client.reset_counters()
-    start_time = time.time()
-
-    authors = [
-        "Brandon Sanderson",
-        "Patrick Rothfuss",
-        "Joe Abercrombie",
-    ]
-
-    try:
-        for author in authors:
-            print(f"\n🔍 Author: '{author}'")
-
-            # Get series
-            series_results = await hardcover_client.get_series_by_author(author, limit=5)
-            if series_results:
-                print(f"  ✅ Series: {len(series_results)}")
-
-            await asyncio.sleep(0.5)
-
-            # Get books
-            book_results = await hardcover_client.search_books_by_author(
-                author, limit=5, fields=["title", "series_names"]
-            )
-            if book_results:
-                print(f"  ✅ Books: {len(book_results)}")
-
-            await asyncio.sleep(0.5)
-
-        elapsed = time.time() - start_time
-        print(f"\n✅ Author-focused framework completed in {elapsed:.2f}s")
-        print_request_stats(0, 0, "Author-Focused Framework")
-        return True
-
-    except Exception as e:
-        print(f"\n❌ Author-focused framework failed: {e}")
-        return False
-
-
-async def test_framework_field_validation():
-    """Field validation framework - comprehensive field testing."""
-    print_header("Framework: Field Validation Tests")
-
-    if not hardcover_client.is_configured:
-        print("⚠️  Skipping framework - Hardcover API not configured")
-        return False
-
-    # Reset counters for this framework
-    hardcover_client.reset_counters()
-    start_time = time.time()
-
-    field_combinations = [
-        ["title"],
-        ["title", "description"],
-        ["title", "series_names"],
-        ["title", "description", "series_names"],
-        ["title", "book_series"],
-        ["title", "list_books"],
-    ]
-
-    try:
-        for i, fields in enumerate(field_combinations, 1):
-            print(f"\n🔍 Test {i}/{len(field_combinations)}: {', '.join(fields)}")
-
-            results = await hardcover_client.search_books_by_author(
-                "Brandon Sanderson",
-                limit=3,
-                fields=fields
-            )
-
-            if results:
-                print(f"  ✅ Retrieved {len(results)} books")
-
-                # Validate fields exist
-                if results:
-                    first_book = results[0]
-                    for field in fields:
-                        if field in first_book:
-                            print(f"     ✓ {field}")
-                        else:
-                            print(f"     ✗ {field} (missing)")
-
-            await asyncio.sleep(0.5)
-
-        elapsed = time.time() - start_time
-        print(f"\n✅ Field validation framework completed in {elapsed:.2f}s")
-        print_request_stats(0, 0, "Field Validation Framework")
-        return True
-
-    except Exception as e:
-        print(f"\n❌ Field validation framework failed: {e}")
         return False
 
 
@@ -755,20 +724,12 @@ async def run_all_tests():
     results.append(("Books By Author", await test_books_by_author()))
     await wait_between_tests(1.0)
 
-    # Test 10: Series Names Field
-    results.append(("Series Names Field", await test_series_names_field()))
+    # Test 10: Series Books Limit Variations (ID 997)
+    results.append(("Series Limit Variations", await test_series_books_limit_variations(997)))
     await wait_between_tests(1.0)
 
     # Test 11: Framework - Basic
     results.append(("Framework: Basic", await test_framework_basic()))
-    await wait_between_tests(1.0)
-
-    # Test 12: Framework - Author Focused
-    results.append(("Framework: Author Focused", await test_framework_author_focused()))
-    await wait_between_tests(1.0)
-
-    # Test 13: Framework - Field Validation
-    results.append(("Framework: Field Validation", await test_framework_field_validation()))
 
     # Summary
     print_header("Test Summary")
@@ -795,10 +756,11 @@ async def main():
     parser.add_argument("--search", metavar="QUERY", help="Test series search with query")
     parser.add_argument("--author", metavar="AUTHOR", help="Test author search or filter")
     parser.add_argument("--series", metavar="ID", type=int, help="Test series books with ID")
+    parser.add_argument("--series-limits", metavar="ID", type=int, help="Test series books limit variations (default: 997)")
     parser.add_argument("--limits", action="store_true", help="Test limit variations")
     parser.add_argument("--fields", action="store_true", help="Test field extraction")
-    parser.add_argument("--framework", metavar="NAME", choices=["basic", "author", "fields", "all"],
-                        help="Run specific framework: basic, author, fields, or all")
+    parser.add_argument("--framework", metavar="NAME", choices=["basic"],
+                        help="Run specific framework: basic")
     parser.add_argument("--all", action="store_true", help="Run all tests (default)")
 
     args = parser.parse_args()
@@ -822,6 +784,11 @@ async def main():
         if success:
             success = await test_series_books(args.series)
 
+    elif args.series_limits:
+        success = await test_configuration()
+        if success:
+            success = await test_series_books_limit_variations(args.series_limits)
+
     elif args.limits:
         success = await test_configuration()
         if success:
@@ -837,16 +804,6 @@ async def main():
         if success:
             if args.framework == "basic":
                 success = await test_framework_basic()
-            elif args.framework == "author":
-                success = await test_framework_author_focused()
-            elif args.framework == "fields":
-                success = await test_framework_field_validation()
-            elif args.framework == "all":
-                await test_framework_basic()
-                await wait_between_tests(2.0)
-                await test_framework_author_focused()
-                await wait_between_tests(2.0)
-                success = await test_framework_field_validation()
 
     else:
         # Run all tests by default
