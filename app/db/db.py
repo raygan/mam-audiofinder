@@ -25,6 +25,15 @@ covers_engine = create_engine(
     pool_recycle=3600  # Recycle connections after 1 hour
 )
 
+def get_db_engine():
+    """
+    Get the database engine for covers and series cache operations.
+
+    Returns:
+        Engine: SQLAlchemy engine for covers.db (contains covers and series_cache tables)
+    """
+    return covers_engine
+
 # ---------------------------- Migration System ----------------------------
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -85,7 +94,8 @@ def run_migrations():
             "create table covers",
             "create table if not exists covers",
             "insert into covers",
-            "create index if not exists idx_covers"
+            "create index if not exists idx_covers",
+            "series_cache"  # Series cache table belongs in covers.db
         ])
 
         # Determine target engine
