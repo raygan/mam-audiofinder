@@ -17,6 +17,9 @@ services:
     user: "${PUID}:${PGID}"
     environment:
       UMASK: "${UMASK}"
+      # Override DATA_DIR to use container path, not host path
+      # (Host path is used by docker-compose for volume mount only)
+      DATA_DIR: "/data"
     volumes:
       - ${DATA_DIR}:/data
       - ${MEDIA_ROOT}:/media
