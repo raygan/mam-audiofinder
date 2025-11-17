@@ -2,6 +2,7 @@ services:
   mam-audiofinder:
     build:
       context: .
+      target: production  # Use production stage, not testing
       args:
         PUID: ${PUID}
         PGID: ${PGID}
