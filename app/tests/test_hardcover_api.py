@@ -212,12 +212,13 @@ async def test_series_books(series_id=None, show_stats=True):
 
 
 async def test_series_books_limit_variations(series_id=997):
-    """Test fetching books for a specific series with different limit values and pagination.
+    """Test fetching books for a specific series with different limit values.
 
-    Tests pagination (offset/page) and limit variations to explore how many books can be retrieved.
+    Tests limit variations to explore how many books can be retrieved.
     Default series_id=997 as requested by user.
+    Note: Pagination (offset/page) has been removed as it's non-functional.
     """
-    print_header(f"Series Books Limit & Pagination Test: ID {series_id}")
+    print_header(f"Series Books Limit Test: ID {series_id}")
 
     if not hardcover_client.is_configured:
         print("⚠️  Skipping test - Hardcover API not configured")
@@ -227,13 +228,12 @@ async def test_series_books_limit_variations(series_id=997):
     start_req = hardcover_client.get_request_count()
     start_cache = hardcover_client.get_cache_hit_count()
 
-    # Test different limit and page values
-    limits_to_test = [5, 10, 20]
-    pages_to_test = [1, 2, 3]  # Test multiple pages (offset equivalent)
+    # Test different limit values
+    limits_to_test = [5, 10, 20, 30]
 
     try:
         # First, get the series info to know what we're testing
-        print(f"\n📚 Testing series ID {series_id} with various limits and pages...")
+        print(f"\n📚 Testing series ID {series_id} with various limits...")
 
         basic_result = await hardcover_client.list_series_books(series_id)
 
@@ -249,70 +249,67 @@ async def test_series_books_limit_variations(series_id=997):
         print(f"   Default books count: {len(basic_result['books'])}\n")
 
         print("="*70)
-        print("Testing search with different limit and page values:")
+        print("Testing search with different limit values:")
         print("="*70)
 
         # Track unique book titles
         all_books = set()
 
         for limit in limits_to_test:
-            for page in pages_to_test:
-                print(f"\n🔍 Test with limit={limit}, page={page} (offset={limit*(page-1)})")
+            print(f"\n🔍 Test with limit={limit}")
 
-                # Search for this series by name with different limits and pages
-                search_results = await hardcover_client.search_series(
-                    title=series_name,
-                    limit=limit,
-                    page=page
-                )
+            # Search for this series by name with different limits
+            search_results = await hardcover_client.search_series(
+                title=series_name,
+                limit=limit
+            )
 
-                if search_results is None:
-                    print(f"  ❌ Search failed")
-                    continue
+            if search_results is None:
+                print(f"  ❌ Search failed")
+                continue
 
-                if not search_results:
-                    print(f"  ⚠️  No results found (end of results)")
-                    continue
+            if not search_results:
+                print(f"  ⚠️  No results found")
+                continue
 
-                # Find the matching series in results
-                matching_series = None
-                for result in search_results:
-                    if str(result.get('series_id')) == str(series_id):
-                        matching_series = result
-                        break
+            # Find the matching series in results
+            matching_series = None
+            for result in search_results:
+                if str(result.get('series_id')) == str(series_id):
+                    matching_series = result
+                    break
 
-                if matching_series:
-                    books = matching_series.get('books', [])
-                    print(f"  ✅ Found series in results")
-                    print(f"     Books returned: {len(books)}")
-                    print(f"     Total results on page: {len(search_results)}")
+            if matching_series:
+                books = matching_series.get('books', [])
+                print(f"  ✅ Found series in results")
+                print(f"     Books returned: {len(books)}")
+                print(f"     Total results: {len(search_results)}")
 
-                    # Add to our collection
-                    books_before = len(all_books)
-                    for book in books:
-                        all_books.add(book)
-                    new_books = len(all_books) - books_before
+                # Add to our collection
+                books_before = len(all_books)
+                for book in books:
+                    all_books.add(book)
+                new_books = len(all_books) - books_before
 
-                    print(f"     New unique books: {new_books}")
+                print(f"     New unique books: {new_books}")
 
-                    # Show first few books
-                    if books:
-                        print(f"     Sample books:")
-                        for i, book in enumerate(books[:3], 1):
-                            print(f"       {i}. {book}")
-                        if len(books) > 3:
-                            print(f"       ... (+{len(books)-3} more)")
-                else:
-                    print(f"  ⚠️  Series {series_id} not in results")
+                # Show first few books
+                if books:
+                    print(f"     Sample books:")
+                    for i, book in enumerate(books[:3], 1):
+                        print(f"       {i}. {book}")
+                    if len(books) > 3:
+                        print(f"       ... (+{len(books)-3} more)")
+            else:
+                print(f"  ⚠️  Series {series_id} not in results")
 
-                # Wait between requests
-                await asyncio.sleep(0.5)
+            # Wait between requests
+            await asyncio.sleep(0.5)
 
         print("\n" + "="*70)
         print(f"📊 Summary:")
         print(f"   Unique books discovered: {len(all_books)}")
         print(f"   Limits tested: {limits_to_test}")
-        print(f"   Pages tested: {pages_to_test}")
         print("="*70)
 
         if all_books:
@@ -320,11 +317,11 @@ async def test_series_books_limit_variations(series_id=997):
             for i, book in enumerate(sorted(all_books), 1):
                 print(f"   {i}. {book}")
 
-        print_request_stats(start_req, start_cache, f"Series {series_id} Limit & Pagination")
+        print_request_stats(start_req, start_cache, f"Series {series_id} Limit Test")
         return True
 
     except Exception as e:
-        print(f"\n❌ Limit & pagination test failed: {e}")
+        print(f"\n❌ Limit test failed: {e}")
         import traceback
         traceback.print_exc()
         return False

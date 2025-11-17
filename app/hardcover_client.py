@@ -308,8 +308,7 @@ class HardcoverClient:
         self,
         title: str,
         author: str = "",
-        limit: int = 10,
-        page: int = 1
+        limit: int = 10
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Search for series by title and/or author.
@@ -317,8 +316,7 @@ class HardcoverClient:
         Args:
             title: Series name to search for
             author: Author name (optional)
-            limit: Maximum number of results per page
-            page: Page number for pagination (default: 1)
+            limit: Maximum number of results (default: 10)
 
         Returns:
             List of series dictionaries with keys:
@@ -333,8 +331,8 @@ class HardcoverClient:
         if not self.is_configured:
             return None
 
-        # Generate cache key (include page for pagination)
-        cache_key = self._get_cache_key("search", f"{title}|{author}|page{page}|limit{limit}")
+        # Generate cache key
+        cache_key = self._get_cache_key("search", f"{title}|{author}|limit{limit}")
 
         # Check cache
         cached = await self._get_cached(cache_key)
@@ -343,8 +341,8 @@ class HardcoverClient:
 
         # Build GraphQL query using Hardcover's search function
         query = """
-        query SearchSeries($query: String!, $queryType: String!, $perPage: Int!, $page: Int!) {
-          search(query: $query, query_type: $queryType, per_page: $perPage, page: $page) {
+        query SearchSeries($query: String!, $queryType: String!, $perPage: Int!) {
+          search(query: $query, query_type: $queryType, per_page: $perPage) {
             results
           }
         }
@@ -353,11 +351,10 @@ class HardcoverClient:
         variables = {
             "query": title,
             "queryType": "Series",
-            "perPage": limit,
-            "page": page
+            "perPage": limit
         }
 
-        logger.info(f"🔍 Searching Hardcover for series: '{title}' (author: '{author}', page: {page}, limit: {limit})")
+        logger.info(f"🔍 Searching Hardcover for series: '{title}' (author: '{author}', limit: {limit})")
 
         # Execute query
         data = await self._execute_graphql(query, variables)

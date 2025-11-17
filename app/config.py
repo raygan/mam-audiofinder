@@ -61,6 +61,7 @@ HARDCOVER_API_TOKEN = os.getenv("HARDCOVER_API_TOKEN", "")
 HARDCOVER_BASE_URL = "https://api.hardcover.app/v1/graphql"
 HARDCOVER_CACHE_TTL = int(os.getenv("HARDCOVER_CACHE_TTL", "300"))  # Cache duration in seconds (default: 5 minutes)
 HARDCOVER_RATE_LIMIT = int(os.getenv("HARDCOVER_RATE_LIMIT", "60"))  # Requests per minute (API limit: 60/min)
+HARDCOVER_SERIES_LIMIT = int(os.getenv("HARDCOVER_SERIES_LIMIT", "20"))  # Default number of series results to fetch
 
 # ---------------------------- Import Configuration ----------------------------
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
