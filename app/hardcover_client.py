@@ -301,25 +301,20 @@ class HardcoverClient:
         if cached is not None:
             return cached.get("series", [])
 
-        # Build GraphQL query
+        # Build GraphQL query using Hardcover's search function
         query = """
-        query SearchSeries($name: String!, $limit: Int!) {
-          series(where: {name: {_ilike: $name}}, limit: $limit) {
-            id
-            name
-            author_name
-            primary_books_count
-            readers_count
+        query SearchSeries($query: String!, $queryType: String!, $perPage: Int!, $page: Int!) {
+          search(query: $query, query_type: $queryType, per_page: $perPage, page: $page) {
+            results
           }
         }
         """
 
-        # Add wildcard for partial matching
-        search_name = f"%{title}%"
-
         variables = {
-            "name": search_name,
-            "limit": limit
+            "query": title,
+            "queryType": "Series",
+            "perPage": limit,
+            "page": 1
         }
 
         logger.info(f"🔍 Searching Hardcover for series: '{title}' (author: '{author}')")
@@ -331,18 +326,36 @@ class HardcoverClient:
             # API call failed
             return None
 
-        if "series" not in data:
-            logger.warning(f"⚠️  No series found for '{title}'")
+        if "search" not in data or "results" not in data["search"]:
+            logger.warning(f"⚠️  No results found for '{title}'")
+            return []
+
+        # Parse results - the API returns results as a JSON array
+        results = data["search"]["results"]
+
+        # If results is a string, parse it as JSON
+        if isinstance(results, str):
+            import json
+            try:
+                results = json.loads(results)
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Failed to parse results JSON: {e}")
+                return []
+
+        # Ensure results is a list
+        if not isinstance(results, list):
+            logger.warning(f"⚠️  Unexpected results format: {type(results)}")
             return []
 
         # Transform results
         series_list = []
-        for item in data["series"]:
+        for item in results:
+            # Handle different possible field names from Hardcover API
             series_list.append({
-                "series_id": item["id"],
-                "series_name": item["name"],
+                "series_id": item.get("id"),
+                "series_name": item.get("name", ""),
                 "author_name": item.get("author_name", ""),
-                "book_count": item.get("primary_books_count", 0),
+                "book_count": item.get("primary_books_count", item.get("book_count", 0)),
                 "readers_count": item.get("readers_count", 0)
             })
 
