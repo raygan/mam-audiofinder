@@ -6,7 +6,30 @@ Citation included:
 
 # 📚 Hardcover API — Search Endpoint Documentation
 
-*Extracted from uploaded file* 
+*Extracted from official Hardcover documentation: [Searching.mdx](https://raw.githubusercontent.com/hardcoverapp/hardcover-docs/refs/heads/main/src/content/docs/api/guides/Searching.mdx)*
+
+## Implementation Notes
+
+**Our MAM Audiobook Finder implementation uses ONLY the documented search endpoint.**
+
+### What We Use
+- ✅ `search()` endpoint - Fully documented, stable, supported
+- ✅ `series_by_pk()` endpoint - **Only for basic series metadata (id, name, author)**
+  - We do NOT query the `books` field (it doesn't exist in the schema)
+  - Used to get series name when we have an ID, then we search for books
+
+### Important Limitations
+- **Books information**: Limited to book titles only (strings), up to 5 books per series
+- **No detailed book data**: Position, subtitle, publication year, authors not available via documented API
+- **Series books**: Retrieved via search endpoint, not from `series_by_pk.books` (that field doesn't exist)
+
+### Why This Approach
+The `series_by_pk` endpoint's `books` field is not documented and does not exist in the GraphQL schema (confirmed via API errors). To maintain stability and use only documented APIs, we:
+1. Use `series_by_pk` for basic series info only (id, name, author)
+2. Use `search(query_type: "series")` to get books array (as title strings)
+3. Accept the limitation of having only book titles, not full book details
+
+---
 
 ## Overview
 
