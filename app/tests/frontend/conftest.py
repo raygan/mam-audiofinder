@@ -49,22 +49,25 @@ def pytest_addoption(parser):
         default=SELENIUM_HUB,
         help="Selenium Grid hub URL (if using remote WebDriver)",
     )
-    parser.addoption(
-        "--base-url",
-        action="store",
-        default=BASE_URL,
-        help="Base URL of the application under test",
-    )
+    # Note: --base-url is provided by pytest-base-url plugin (dependency of pytest-selenium)
+    # We read it in browser_config fixture to maintain compatibility
 
 
 @pytest.fixture(scope="session")
 def browser_config(request):
     """Get browser configuration from command line options."""
+    # --base-url is provided by pytest-base-url plugin
+    # Use it if available, otherwise fall back to our default
+    try:
+        base_url = request.config.getoption("--base-url")
+    except ValueError:
+        base_url = BASE_URL
+
     return {
         "browser": request.config.getoption("--browser"),
         "headless": request.config.getoption("--headless").lower() == "true",
         "selenium_hub": request.config.getoption("--selenium-hub"),
-        "base_url": request.config.getoption("--base-url"),
+        "base_url": base_url or BASE_URL,
     }
 
 
