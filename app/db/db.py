@@ -146,7 +146,20 @@ def run_migrations():
                             logger.warning(f"    ⚠️  Error executing migration: {e}")
             else:
                 # Split into individual statements (handles multi-statement files)
-                statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+                raw_statements = [s.strip() for s in sql.split(";") if s.strip()]
+
+                # Clean comments from each statement
+                statements = []
+                for stmt in raw_statements:
+                    # Remove comment-only lines but keep actual SQL
+                    lines = [
+                        line.strip()
+                        for line in stmt.split("\n")
+                        if line.strip() and not line.strip().startswith("--")
+                    ]
+                    clean_stmt = "\n".join(lines)
+                    if clean_stmt:
+                        statements.append(clean_stmt)
 
                 # Execute each statement in its own transaction (SQLite requirement)
                 # This prevents one failed statement from invalidating subsequent ones
