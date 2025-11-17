@@ -56,7 +56,7 @@ def run_migrations():
         logger.info("ℹ️  No migration files found")
         return
 
-    logger.info(f"🔧 Running {len(migration_files)} migration(s)...")
+    logger.info(f"🔧 Checking {len(migration_files)} migration(s)...")
 
     # Track which database each migration applies to
     # Migrations 001-004 are for history.db, 005+ are for covers.db
