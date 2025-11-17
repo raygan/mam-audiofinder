@@ -34,7 +34,7 @@ The Hardcover API is a **GraphQL API** (not REST) providing comprehensive access
 
 ### GraphQL Endpoint
 
-**URL:** `https://api.hardcover.app/graphql`
+**URL:** `https://api.hardcover.app/v1/graphql`
 **Method:** `POST`
 **Content-Type:** `application/json`
 
@@ -85,7 +85,7 @@ Content-Type: application/json
 ```python
 headers = {"Authorization": f"Bearer {your_api_token}"}
 response = await client.post(
-    "https://api.hardcover.app/graphql",
+    "https://api.hardcover.app/v1/graphql",
     headers=headers,
     json={"query": query_string, "variables": variables}
 )
@@ -495,7 +495,7 @@ class HardcoverClient:
     _request_semaphore: Optional[asyncio.Semaphore] = None
 
     def __init__(self):
-        self.base_url = HARDCOVER_BASE_URL  # https://api.hardcover.app/graphql
+        self.base_url = HARDCOVER_BASE_URL  # https://api.hardcover.app/v1/graphql
         self.api_token = HARDCOVER_API_TOKEN
         self._series_cache: Dict[str, Tuple[dict, float]] = {}
 
@@ -560,4 +560,4 @@ class HardcoverClient:
 - **Roadmap:** `documentation/todo.md` Phase 0-2 tasks
 - **Pattern Reference:** `app/abs_client.py` (similar HTTP client implementation)
 - **Official Docs:** https://docs.hardcover.app/api/getting-started/
-- **GraphQL Endpoint:** https://api.hardcover.app/graphql
+- **GraphQL Endpoint:** https://api.hardcover.app/v1/graphql

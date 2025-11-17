@@ -272,7 +272,7 @@ class HardcoverClient:
         title: str,
         author: str = "",
         limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> Optional[List[Dict[str, Any]]]:
         """
         Search for series by title and/or author.
 
@@ -288,16 +288,17 @@ class HardcoverClient:
             - author_name: Primary author
             - book_count: Number of books
             - readers_count: Total readers
+            Returns None if API call fails, empty list [] if no results found.
         """
         if not self.is_configured:
-            return []
+            return None
 
         # Generate cache key
         cache_key = self._get_cache_key("search", f"{title}|{author}")
 
         # Check cache
         cached = await self._get_cached(cache_key)
-        if cached:
+        if cached is not None:
             return cached.get("series", [])
 
         # Build GraphQL query
@@ -326,7 +327,11 @@ class HardcoverClient:
         # Execute query
         data = await self._execute_graphql(query, variables)
 
-        if not data or "series" not in data:
+        if data is None:
+            # API call failed
+            return None
+
+        if "series" not in data:
             logger.warning(f"⚠️  No series found for '{title}'")
             return []
 
