@@ -61,6 +61,9 @@ class HardcoverClient:
     # Shared HTTP client for connection pooling
     _shared_client: Optional[httpx.AsyncClient] = None
     _rate_limiter: Optional[HardcoverRateLimiter] = None
+    # Request counting (class-level for all instances)
+    _request_count: int = 0
+    _cache_hit_count: int = 0
 
     def __init__(self):
         """Initialize Hardcover client."""
@@ -85,6 +88,23 @@ class HardcoverClient:
     def is_configured(self) -> bool:
         """Check if Hardcover API is configured."""
         return bool(self.api_token)
+
+    @classmethod
+    def get_request_count(cls) -> int:
+        """Get total number of API requests made."""
+        return cls._request_count
+
+    @classmethod
+    def get_cache_hit_count(cls) -> int:
+        """Get total number of cache hits."""
+        return cls._cache_hit_count
+
+    @classmethod
+    def reset_counters(cls):
+        """Reset request and cache counters (useful for testing)."""
+        cls._request_count = 0
+        cls._cache_hit_count = 0
+        logger.info("🔄 Reset Hardcover API counters")
 
     async def _execute_graphql(
         self,
@@ -121,6 +141,9 @@ class HardcoverClient:
             try:
                 # Acquire rate limit token
                 await self._rate_limiter.acquire()
+
+                # Increment request counter
+                HardcoverClient._request_count += 1
 
                 # Execute request
                 response = await self._shared_client.post(
@@ -220,6 +243,9 @@ class HardcoverClient:
                         {"key": cache_key}
                     )
                     conn.commit()
+
+                    # Increment class-level cache hit counter
+                    HardcoverClient._cache_hit_count += 1
 
                     logger.info(f"✅ Cache HIT for {cache_key} (hits: {result[2] + 1})")
                     return json.loads(result[0])
@@ -552,6 +578,131 @@ class HardcoverClient:
         )
 
         return result
+
+    async def search_books_by_author(
+        self,
+        author_name: str,
+        limit: int = 10,
+        fields: Optional[List[str]] = None
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Search for books by a specific author using GraphQL query.
+
+        Args:
+            author_name: Author name to search for
+            limit: Maximum number of results
+            fields: List of fields to retrieve (default: title, description, series_names)
+
+        Returns:
+            List of book dictionaries with requested fields, or None on failure
+        """
+        if not self.is_configured:
+            return None
+
+        # Generate cache key
+        fields_key = ",".join(sorted(fields)) if fields else "default"
+        cache_key = self._get_cache_key("books_by_author", f"{author_name}|{limit}|{fields_key}")
+
+        # Check cache
+        cached = await self._get_cached(cache_key)
+        if cached is not None:
+            return cached.get("books", [])
+
+        # Default fields if not specified
+        if fields is None:
+            fields = ["title", "description", "series_names"]
+
+        # Build field selection string
+        field_str = "\n            ".join(fields)
+
+        # Build GraphQL query
+        query = f"""
+        query BooksByAuthor($authorName: String!, $limit: Int!) {{
+            books(
+                where: {{
+                    contributions: {{
+                        author: {{
+                            name: {{_eq: $authorName}}
+                        }}
+                    }}
+                }}
+                limit: $limit
+                order_by: {{users_count: desc}}
+            ) {{
+                id
+                {field_str}
+            }}
+        }}
+        """
+
+        variables = {
+            "authorName": author_name,
+            "limit": limit
+        }
+
+        logger.info(f"🔍 Searching Hardcover for books by author: '{author_name}' (limit: {limit})")
+
+        # Execute query
+        data = await self._execute_graphql(query, variables)
+
+        if data is None:
+            return None
+
+        if "books" not in data:
+            logger.warning(f"⚠️  No books field in response for author '{author_name}'")
+            return []
+
+        books = data["books"]
+        logger.info(f"✅ Found {len(books)} books by {author_name}")
+
+        # Cache results
+        await self._set_cache(
+            cache_key,
+            "books_by_author",
+            {"books": books},
+            {"author": author_name, "limit": limit}
+        )
+
+        return books
+
+    async def get_series_by_author(
+        self,
+        author_name: str,
+        limit: int = 10
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Get series by author name with comprehensive field extraction.
+
+        This method searches for series and attempts to extract:
+        - series_names
+        - book_series relationships
+        - description
+        - list_books
+
+        Args:
+            author_name: Author name to search for
+            limit: Maximum number of results
+
+        Returns:
+            List of series dictionaries with comprehensive data
+        """
+        if not self.is_configured:
+            return None
+
+        # Use search_series with author filter
+        logger.info(f"🔍 Getting series by author: '{author_name}'")
+        results = await self.search_series(title="", author=author_name, limit=limit)
+
+        if results is None:
+            return None
+
+        # Filter results to only those matching the author
+        if author_name:
+            filtered = [s for s in results if author_name.lower() in s.get('author_name', '').lower()]
+            logger.info(f"✅ Found {len(filtered)} series by {author_name} (from {len(results)} results)")
+            return filtered
+
+        return results
 
 
 # Global instance
