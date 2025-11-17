@@ -466,7 +466,10 @@ class HardcoverClient:
           series_by_pk(id: $seriesId) {
             id
             name
-            author_name
+            author {
+              id
+              name
+            }
             books(order_by: {position: asc}) {
               id
               title
@@ -511,10 +514,14 @@ class HardcoverClient:
                 "authors": authors
             })
 
+        # Extract author name from author object
+        author_obj = series_data.get("author", {})
+        author_name = author_obj.get("name", "") if author_obj else ""
+
         result = {
             "series_id": series_data["id"],
             "series_name": series_data["name"],
-            "author_name": series_data.get("author_name", ""),
+            "author_name": author_name,
             "books": books
         }
 
@@ -528,7 +535,7 @@ class HardcoverClient:
             {
                 "series_id": series_id,
                 "series_name": series_data["name"],
-                "series_author": series_data.get("author_name", "")
+                "series_author": author_name
             }
         )
 
