@@ -127,22 +127,40 @@ def run_migrations():
             # Use already-read SQL content (avoid reading file twice)
             sql = migration_file.read_text()
 
-            # Split into individual statements (handles multi-statement files)
-            statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+            # Check if migration contains triggers (which have BEGIN/END blocks)
+            contains_trigger = "CREATE TRIGGER" in sql.upper()
 
-            # Execute each statement independently (idempotent migrations)
-            with target_engine.begin() as cx:
-                for statement in statements:
+            if contains_trigger:
+                # Use executescript for files with triggers (handles BEGIN/END properly)
+                with target_engine.connect() as conn:
+                    # Get raw sqlite connection
+                    raw_conn = conn.connection.driver_connection
                     try:
-                        cx.execute(text(statement))
+                        raw_conn.executescript(sql)
+                        conn.commit()
                     except Exception as e:
-                        # Log but don't fail - allows idempotent migrations
-                        # (e.g., "ALTER TABLE ADD COLUMN" on already existing column)
+                        # Log error but don't fail (allows idempotent migrations)
                         if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
-                            logger.debug(f"    ⊘ Skipped (already exists): {statement[:50]}...")
+                            logger.debug(f"    ⊘ Skipped (already exists)")
                         else:
-                            logger.warning(f"    ⚠️  Error executing statement: {e}")
-                            logger.debug(f"    Statement: {statement}")
+                            logger.warning(f"    ⚠️  Error executing migration: {e}")
+            else:
+                # Split into individual statements (handles multi-statement files)
+                statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
+
+                # Execute each statement independently (idempotent migrations)
+                with target_engine.begin() as cx:
+                    for statement in statements:
+                        try:
+                            cx.execute(text(statement))
+                        except Exception as e:
+                            # Log but don't fail - allows idempotent migrations
+                            # (e.g., "ALTER TABLE ADD COLUMN" on already existing column)
+                            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                                logger.debug(f"    ⊘ Skipped (already exists): {statement[:50]}...")
+                            else:
+                                logger.warning(f"    ⚠️  Error executing statement: {e}")
+                                logger.debug(f"    Statement: {statement}")
 
             with target_engine.begin() as cx:
                 cx.execute(
