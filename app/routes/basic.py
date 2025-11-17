@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from config import IMPORT_MODE, FLATTEN_DISCS
+from config import IMPORT_MODE, FLATTEN_DISCS, HARDCOVER_SERIES_LIMIT
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -47,4 +47,5 @@ async def config():
     return {
         "import_mode": IMPORT_MODE,
         "flatten_discs": FLATTEN_DISCS,
+        "hardcover_series_limit": HARDCOVER_SERIES_LIMIT,
     }

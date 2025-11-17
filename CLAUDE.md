@@ -113,6 +113,7 @@ For detailed workflows, see [BACKEND.md](BACKEND.md).
 - `qbittorrent.py` - GET /qb/torrents, GET /qb/torrent/{hash}/tree, POST /add
 - `import_route.py` - POST /import (with verification + description fetch)
 - `showcase.py` - GET /api/showcase (grouped search results)
+- `series.py` - POST /api/series/search, GET /api/series/{id}/books (Hardcover integration)
 - `covers_route.py` - GET /covers/{filename}
 - `logs_route.py` - GET /api/logs
 
@@ -120,7 +121,7 @@ For detailed workflows, see [BACKEND.md](BACKEND.md).
 
 **Multi-page app:** Each route is separate HTML page with own entry script
 
-**Core (~315 lines):** api.js (11 methods), router.js (URL state), utils.js
+**Core (~315 lines):** api.js (13 methods), router.js (URL state), utils.js
 
 **Services:** coverLoader.js (lazy loading with IntersectionObserver)
 
@@ -228,6 +229,13 @@ CREATE TABLE covers (
 - Auto-healing for missing files
 - Progressive loading with lazy loading (IntersectionObserver)
 
+### Hardcover Series Discovery
+- Optional integration with Hardcover API for series metadata
+- GraphQL API with rate limiting (60 req/min) and caching (5 min TTL)
+- Limit parameter controls result count (configurable via HARDCOVER_SERIES_LIMIT, default: 20)
+- **Note:** Pagination (offset/page) removed - non-functional in Hardcover API
+- Frontend methods: `api.searchSeries()`, `api.getSeriesBooks()`
+
 ## Environment Configuration
 
 See `env.example` for full list with comments.
@@ -235,6 +243,8 @@ See `env.example` for full list with comments.
 **Required:** MAM_COOKIE, QB_URL/USER/PASS, MEDIA_ROOT, DATA_DIR
 
 **Optional (ABS):** ABS_BASE_URL, ABS_API_KEY, ABS_LIBRARY_ID, ABS_VERIFY_TIMEOUT, ABS_CHECK_LIBRARY, ABS_LIBRARY_CACHE_TTL, MAX_COVERS_SIZE_MB
+
+**Optional (Hardcover):** HARDCOVER_API_TOKEN, HARDCOVER_CACHE_TTL, HARDCOVER_RATE_LIMIT, HARDCOVER_SERIES_LIMIT
 
 **Optional (Behavior):** IMPORT_MODE (link/copy/move), FLATTEN_DISCS, QB_CATEGORY, QB_POSTIMPORT_CATEGORY
 

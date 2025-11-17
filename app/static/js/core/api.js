@@ -228,5 +228,54 @@ export const api = {
     const resp = await fetch(`/api/showcase?${queryParams}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
+  },
+
+  /**
+   * Search for series on Hardcover by title and/or author
+   * @param {Object} params - Series search parameters
+   * @param {string} params.title - Book title to search
+   * @param {string} params.author - Author name (optional)
+   * @param {string} params.normalized_title - Normalized title (optional)
+   * @param {number} params.limit - Result limit (optional, uses server default if not provided)
+   * @returns {Promise<{query: Object, hardcover_series: Array, cached: boolean, timestamp: string}>}
+   */
+  async searchSeries(params) {
+    const resp = await fetch('/api/series/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: params.title,
+        author: params.author || '',
+        normalized_title: params.normalized_title || null,
+        limit: params.limit || undefined
+      })
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const j = await resp.json();
+        if (j?.detail) msg += ` — ${j.detail}`;
+      } catch {}
+      throw new Error(msg);
+    }
+    return resp.json();
+  },
+
+  /**
+   * Get books in a series from Hardcover
+   * @param {number} seriesId - Hardcover series ID
+   * @returns {Promise<{series_id: number, series_name: string, author_name: string, books: Array, cached: boolean, timestamp: string}>}
+   */
+  async getSeriesBooks(seriesId) {
+    const resp = await fetch(`/api/series/${seriesId}/books`);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const j = await resp.json();
+        if (j?.detail) msg += ` — ${j.detail}`;
+      } catch {}
+      throw new Error(msg);
+    }
+    return resp.json();
   }
 };
