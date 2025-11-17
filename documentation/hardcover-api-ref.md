@@ -62,6 +62,73 @@ response = await client.post(
 
 **Recommendation:** Implement caching and request batching to stay within limits. Consider 5-minute cache TTL for frequently accessed data.
 
+### Throttle & Retry Strategy
+
+**Implementation Requirements for MAM AudioFinder:**
+
+1. **Request Rate Limiting**
+   - Track requests per minute in memory (simple counter with timestamp)
+   - If approaching 60 req/min, sleep until next minute window
+   - Add small random jitter (50-200ms) to avoid thundering herd
+
+2. **Caching Strategy**
+   - Cache series searches for 5 minutes (300 seconds TTL)
+   - Cache series book lists for 5 minutes
+   - Store in SQLite table `series_cache` (Migration 009)
+   - Cache key format: `search:{query_hash}` or `series:{series_id}`
+
+3. **Retry Policy (429 Rate Limit Errors)**
+   - Max retries: 3
+   - Exponential backoff: 2s, 4s, 8s
+   - Add random jitter: 0-1s to spread retry load
+   - Log all rate limit hits for monitoring
+
+4. **Timeout Handling**
+   - Set httpx timeout to 25s (below API's 30s max)
+   - Treat timeouts as retriable errors (same backoff policy)
+   - Max timeout retries: 2
+
+5. **Circuit Breaker (Optional Enhancement)**
+   - After 5 consecutive failures, pause Hardcover requests for 60s
+   - Return cached data during circuit breaker period
+   - Log circuit breaker events
+
+**Example Python Implementation:**
+```python
+import time
+import asyncio
+from datetime import datetime, timedelta
+
+class HardcoverRateLimiter:
+    def __init__(self, requests_per_minute=60):
+        self.rpm = requests_per_minute
+        self.requests = []  # List of request timestamps
+
+    async def acquire(self):
+        """Wait if necessary to stay within rate limit"""
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=1)
+
+        # Remove requests older than 1 minute
+        self.requests = [ts for ts in self.requests if ts > cutoff]
+
+        if len(self.requests) >= self.rpm:
+            # Calculate sleep time
+            oldest = self.requests[0]
+            sleep_until = oldest + timedelta(minutes=1)
+            sleep_seconds = (sleep_until - now).total_seconds()
+
+            if sleep_seconds > 0:
+                await asyncio.sleep(sleep_seconds + random.uniform(0.05, 0.2))
+
+        self.requests.append(datetime.now())
+```
+
+**Error Response Codes:**
+- `429 Too Many Requests` - Rate limit exceeded, implement backoff
+- `408 Request Timeout` - Query took >30s, retry with simpler query
+- `500/502/503` - Server error, retry with backoff
+
 ---
 
 ## GraphQL Endpoint

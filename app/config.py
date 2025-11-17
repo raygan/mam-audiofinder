@@ -56,6 +56,12 @@ _abs_fully_configured = bool(ABS_BASE_URL and ABS_API_KEY and ABS_LIBRARY_ID)
 ABS_CHECK_LIBRARY = os.getenv("ABS_CHECK_LIBRARY", str(_abs_fully_configured)).lower() in ("true", "1", "yes")
 ABS_LIBRARY_CACHE_TTL = int(os.getenv("ABS_LIBRARY_CACHE_TTL", "300"))  # Cache duration in seconds (default: 5 minutes)
 
+# ---------------------------- Hardcover API Configuration ----------------------------
+HARDCOVER_API_TOKEN = os.getenv("HARDCOVER_API_TOKEN", "")
+HARDCOVER_BASE_URL = "https://api.hardcover.app/graphql"
+HARDCOVER_CACHE_TTL = int(os.getenv("HARDCOVER_CACHE_TTL", "300"))  # Cache duration in seconds (default: 5 minutes)
+HARDCOVER_RATE_LIMIT = int(os.getenv("HARDCOVER_RATE_LIMIT", "60"))  # Requests per minute (API limit: 60/min)
+
 # ---------------------------- Import Configuration ----------------------------
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")

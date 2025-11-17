@@ -803,6 +803,59 @@ a:hover {
   pointer-events: none;
 }
 
+/* Series Search Button */
+.series-search-btn {
+  position: absolute;
+  bottom: var(--spacing-sm);
+  right: var(--spacing-sm);
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  background: rgba(139, 38, 53, 0.9);
+  color: white;
+  border: 1px solid var(--accent-maroon-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 15;
+  pointer-events: auto;
+  font-weight: 600;
+}
+
+.series-search-btn:hover:not(:disabled) {
+  background: var(--accent-maroon-light);
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(139, 38, 53, 0.4);
+}
+
+.series-search-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.series-search-btn.searching {
+  background: rgba(184, 115, 51, 0.9);
+  border-color: var(--warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.series-search-btn.success {
+  background: rgba(45, 122, 62, 0.9);
+  border-color: var(--success);
+}
+
+.series-search-btn.error {
+  background: rgba(168, 50, 50, 0.9);
+  border-color: var(--error);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 /* Showcase Detail View */
 .showcase-detail {
   margin-top: var(--spacing-xl);
