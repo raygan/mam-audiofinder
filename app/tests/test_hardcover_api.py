@@ -103,8 +103,15 @@ async def test_series_search(query="Mistborn", author="", limit=5):
             print_result("Series ID:", series.get('series_id'), indent=1)
             print_result("Name:", series.get('series_name'), indent=1)
             print_result("Author:", series.get('author_name'), indent=1)
-            print_result("Books:", series.get('book_count'), indent=1)
+            print_result("Book Count:", series.get('book_count'), indent=1)
             print_result("Readers:", series.get('readers_count'), indent=1)
+            books = series.get('books', [])
+            if books:
+                print_result("Book Titles:", f"({len(books)} titles)", indent=1)
+                for j, title in enumerate(books[:3], 1):  # Show first 3
+                    print_result(f"  {j}.", title, indent=1)
+                if len(books) > 3:
+                    print_result("  ...", f"(+{len(books)-3} more)", indent=1)
             print()
 
         return True
@@ -154,19 +161,10 @@ async def test_series_books(series_id=None):
         print(f"   Author: {result['author_name']}")
         print(f"   Books: {len(result['books'])}\n")
 
-        for i, book in enumerate(result['books'], 1):
-            position = book.get('position', 'N/A')
-            print(f"Book #{i} (Position {position}):")
-            print_result("Book ID:", book.get('book_id'), indent=1)
-            print_result("Title:", book.get('title'), indent=1)
-            if book.get('subtitle'):
-                print_result("Subtitle:", book.get('subtitle'), indent=1)
-            print_result("Authors:", ", ".join(book.get('authors', [])), indent=1)
-            print_result("Published:", book.get('published_year'), indent=1)
-            if book.get('cover_url'):
-                cover_display = book['cover_url'][:50] + "..." if len(book['cover_url']) > 50 else book['cover_url']
-                print_result("Cover:", cover_display, indent=1)
-            print()
+        # Note: Books are now simple title strings (limited to 5) from search endpoint
+        print("   📚 Book titles (from search results, limited to top 5):")
+        for i, book_title in enumerate(result['books'], 1):
+            print(f"      {i}. {book_title}")
 
         return True
 

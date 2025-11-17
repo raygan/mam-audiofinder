@@ -299,6 +299,7 @@ class HardcoverClient:
             - author_name: Primary author
             - book_count: Number of books
             - readers_count: Total readers
+            - books: List of book titles (strings, up to 5 books from search results)
             Returns None if API call fails, empty list [] if no results found.
         """
         if not self.is_configured:
@@ -386,13 +387,19 @@ class HardcoverClient:
                     logger.debug(f"🔍 First hit keys: {list(hit.keys())}")
                     logger.debug(f"🔍 First document keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
 
-                # Extract series fields
+                # Extract series fields including books array
+                books = doc.get("books", [])
+                # Ensure books is a list (may be strings or empty)
+                if not isinstance(books, list):
+                    books = []
+
                 series_list.append({
                     "series_id": doc.get("id"),
                     "series_name": doc.get("name", ""),
                     "author_name": doc.get("author_name", ""),
                     "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
-                    "readers_count": doc.get("readers_count", 0)
+                    "readers_count": doc.get("readers_count", 0),
+                    "books": books  # Array of book title strings (up to 5)
                 })
 
         # Fallback: if results is already a list (old/unexpected format)
@@ -412,13 +419,18 @@ class HardcoverClient:
                 if idx == 0:
                     logger.debug(f"🔍 First result keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
 
-                # Extract fields with defensive fallbacks
+                # Extract fields with defensive fallbacks including books array
+                books = doc.get("books", [])
+                if not isinstance(books, list):
+                    books = []
+
                 series_list.append({
                     "series_id": doc.get("id"),
                     "series_name": doc.get("name", ""),
                     "author_name": doc.get("author_name", ""),
                     "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
-                    "readers_count": doc.get("readers_count", 0)
+                    "readers_count": doc.get("readers_count", 0),
+                    "books": books  # Array of book title strings (up to 5)
                 })
 
         else:
@@ -439,15 +451,26 @@ class HardcoverClient:
 
     async def list_series_books(self, series_id: int) -> Optional[Dict[str, Any]]:
         """
-        List all books in a series.
+        List books in a series using the documented search endpoint.
+
+        NOTE: This function now uses only the documented Hardcover search API.
+        Book information is limited to titles only (up to 5 books).
+
+        Strategy:
+        1. First, get series basic info (id, name, author) using series_by_pk
+        2. Then search for the series by name to get books array
+        3. Return combined results
 
         Args:
             series_id: Hardcover series ID
 
         Returns:
             Dictionary with keys:
-            - series_id, series_name: Series metadata
-            - books: List of book dictionaries with title, position, authors, etc.
+            - series_id: Hardcover series ID
+            - series_name: Series name
+            - author_name: Primary author
+            - books: List of book titles (strings, limited to top 5 from search)
+            Returns None if series not found or API fails.
         """
         if not self.is_configured:
             return None
@@ -460,9 +483,9 @@ class HardcoverClient:
         if cached:
             return cached
 
-        # Build GraphQL query
+        # Step 1: Get series basic info (without books field which doesn't exist)
         query = """
-        query GetSeriesBooks($seriesId: Int!) {
+        query GetSeriesInfo($seriesId: Int!) {
           series_by_pk(id: $seriesId) {
             id
             name
@@ -470,27 +493,14 @@ class HardcoverClient:
               id
               name
             }
-            books(order_by: {position: asc}) {
-              id
-              title
-              subtitle
-              position
-              published_year
-              image
-              authors {
-                id
-                name
-              }
-            }
           }
         }
         """
 
         variables = {"seriesId": series_id}
 
-        logger.info(f"📚 Fetching books for series ID {series_id}")
+        logger.info(f"📚 Fetching series info for ID {series_id}")
 
-        # Execute query
         data = await self._execute_graphql(query, variables)
 
         if not data or "series_by_pk" not in data or not data["series_by_pk"]:
@@ -498,34 +508,36 @@ class HardcoverClient:
             return None
 
         series_data = data["series_by_pk"]
-
-        # Transform books
-        books = []
-        for book in series_data.get("books", []):
-            authors = [a["name"] for a in book.get("authors", [])]
-
-            books.append({
-                "book_id": book["id"],
-                "title": book["title"],
-                "subtitle": book.get("subtitle", ""),
-                "position": book.get("position"),
-                "published_year": book.get("published_year"),
-                "cover_url": book.get("image", ""),
-                "authors": authors
-            })
-
-        # Extract author name from author object
+        series_name = series_data["name"]
         author_obj = series_data.get("author", {})
         author_name = author_obj.get("name", "") if author_obj else ""
 
+        logger.info(f"✅ Found series: '{series_name}' by {author_name}")
+
+        # Step 2: Search for this series to get books array
+        logger.info(f"🔍 Searching for books in series '{series_name}'")
+        search_results = await self.search_series(title=series_name, limit=1)
+
+        books = []
+        if search_results and len(search_results) > 0:
+            # Use the first result (should be exact match)
+            first_result = search_results[0]
+            if first_result.get("series_id") == str(series_id) or first_result.get("series_id") == series_id:
+                books = first_result.get("books", [])
+                logger.info(f"✅ Found {len(books)} books from search results")
+            else:
+                logger.warning(f"⚠️  Search result mismatch: got ID {first_result.get('series_id')}, expected {series_id}")
+                # Still use the books but log the discrepancy
+                books = first_result.get("books", [])
+
         result = {
             "series_id": series_data["id"],
-            "series_name": series_data["name"],
+            "series_name": series_name,
             "author_name": author_name,
-            "books": books
+            "books": books  # Array of book title strings (up to 5)
         }
 
-        logger.info(f"✅ Found {len(books)} books in series '{series_data['name']}'")
+        logger.info(f"✅ Returning {len(books)} book titles for series '{series_name}'")
 
         # Cache results
         await self._set_cache(
@@ -534,7 +546,7 @@ class HardcoverClient:
             result,
             {
                 "series_id": series_id,
-                "series_name": series_data["name"],
+                "series_name": series_name,
                 "series_author": author_name
             }
         )
