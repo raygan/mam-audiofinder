@@ -6,17 +6,18 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from sqlalchemy import create_engine, text
+from config import HISTORY_DB_PATH, COVERS_DB_PATH
 
 logger = logging.getLogger("mam-audiofinder")
 
 # ---------------------------- Database Engines ----------------------------
 # Main history database
-engine = create_engine("sqlite:////data/history.db", future=True)
+engine = create_engine(f"sqlite:///{HISTORY_DB_PATH}", future=True)
 
 # Covers database - separate from history to cache covers before adding to qBittorrent
 # Configure connection pool to handle concurrent cover fetches better
 covers_engine = create_engine(
-    "sqlite:////data/covers.db",
+    f"sqlite:///{COVERS_DB_PATH}",
     future=True,
     pool_size=20,  # Increased from default 5
     max_overflow=30,  # Increased from default 10

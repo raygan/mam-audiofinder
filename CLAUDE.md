@@ -260,14 +260,36 @@ docker compose logs -f       # View logs
 
 ### Testing
 
+**Two testing modes available - same test suite (223 tests), different environments:**
+
+**Local Testing** (fast iteration, development):
 ```bash
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements-dev.txt
-pytest tests/ -v                           # Run all 223 tests
-pytest tests/test_verification.py -v       # Specific file
-pytest tests/ --cov=app --cov-report=html  # Coverage
+make test-backend                          # Run all backend tests
+make test-coverage                         # With coverage report
+pytest app/tests/test_verification.py -v   # Specific file
 ```
 
-**Test Coverage:** Verification logic, cover caching, description fetch, search, helpers, migrations
+**Container Testing** (integration, docker networking, can reach ABS):
+```bash
+make docker-test-build                     # Build test container (first time)
+make docker-test-run                       # Run full test suite in container
+make docker-test-backend                   # Backend tests only
+make docker-test-frontend                  # Frontend tests (integrated Selenium)
+make docker-test-shell                     # Debug in container
+```
+
+**Test Coverage:** Verification logic, cover caching, description fetch, search, helpers, migrations, frontend workflows
+
+**Key Improvements:**
+- Database paths now configurable via `DATA_DIR`, `HISTORY_DB_PATH`, `COVERS_DB_PATH` env vars
+- Multi-stage Dockerfile: production stage (lean, ~200MB) + testing stage (with pytest, selenium, make, chromium)
+- Integrated Selenium browser in test container (no separate 2GB selenium container needed)
+- Isolated test data (`/data/test-data/`) doesn't interfere with production
+- Live code mounting for rapid iteration in container tests
+
+See [TESTING.md](TESTING.md) for comprehensive testing guide and troubleshooting.
 
 ## Important Patterns
 

@@ -1,0 +1,46 @@
+# Docker Compose override for testing
+# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml <command>
+# Or use the Makefile targets: make docker-test-build, make docker-test-run
+
+services:
+  # Test service - uses testing stage with all dependencies
+  mam-audiofinder-test:
+    build:
+      context: .
+      target: testing  # Uses the testing stage from Dockerfile
+      args:
+        PUID: ${PUID:-1000}
+        PGID: ${PGID:-1000}
+    image: mam-audiofinder:test
+    container_name: mam-audiofinder-test
+    networks:
+      - nginx-network  # Same network as production for ABS connectivity
+    env_file:
+      - .env
+    environment:
+      # Override database paths for isolated testing
+      DATA_DIR: /data/test-data
+      HISTORY_DB_PATH: /data/test-data/history.db
+      COVERS_DB_PATH: /data/test-data/covers.db
+      # Selenium configuration for integrated browser
+      SELENIUM_DRIVER_TYPE: local
+      SELENIUM_BROWSER: chrome
+    volumes:
+      # Mount test directories for live code updates during development
+      - ./app/tests:/app/tests
+      - ./app:/app/app
+      - ${DATA_DIR:-./data}:/data
+      - ${MEDIA_ROOT:-./media}:/media
+      # Create isolated test data directory
+      - test-data:/data/test-data
+    command: pytest tests/ -v --tb=short
+    profiles:
+      - testing  # Only activated when using --profile testing
+
+volumes:
+  # Isolated volume for test data (doesn't interfere with production data)
+  test-data:
+
+networks:
+  nginx-network:
+    external: true

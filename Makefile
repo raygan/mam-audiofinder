@@ -166,17 +166,14 @@ install-dev: ## Install development dependencies (including test tools)
 	@$(PIP) install -r requirements-dev.txt
 	@echo "✓ Development dependencies installed"
 
-setup-selenium: ## Start Selenium Grid in Docker
-	@echo "Starting Selenium Grid..."
-	@$(DOCKER_COMPOSE) up -d selenium
-	@echo "Waiting for Selenium to be ready..."
-	@sleep 5
-	@echo "✓ Selenium Grid running at $(SELENIUM_HUB)"
+setup-selenium: ## [DEPRECATED] Selenium now integrated in test container
+	@echo "⚠️  DEPRECATED: Selenium is now integrated into the test container"
+	@echo "   Use 'make docker-test-frontend' to run frontend tests with integrated Selenium"
+	@echo "   Or use 'make docker-test-shell' to debug Selenium tests interactively"
 
-stop-selenium: ## Stop Selenium Grid
-	@echo "Stopping Selenium Grid..."
-	@$(DOCKER_COMPOSE) stop selenium
-	@echo "✓ Selenium Grid stopped"
+stop-selenium: ## [DEPRECATED] Selenium now integrated in test container
+	@echo "⚠️  DEPRECATED: Selenium is now integrated into the test container"
+	@echo "   No separate Selenium service to stop"
 
 setup-frontend-tests: ## Initialize frontend test structure (run once)
 	@echo "Setting up frontend test infrastructure..."
@@ -205,17 +202,57 @@ clean-test: ## Remove test artifacts and coverage reports
 	@rm -f coverage.xml
 	@echo "✓ Test artifacts cleaned"
 
-##@ Docker
+##@ Docker Testing
 
-docker-test: ## Run tests inside Docker container
-	@echo "Running tests in Docker container..."
-	@$(DOCKER_COMPOSE) exec mam-audiofinder make test-backend
-	@echo "✓ Docker tests completed"
+docker-test-build: ## Build test container image
+	@echo "Building test container image..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml build mam-audiofinder-test
+	@echo "✓ Test container image built successfully"
 
-docker-test-coverage: ## Run tests with coverage in Docker
-	@echo "Running tests with coverage in Docker..."
-	@$(DOCKER_COMPOSE) exec mam-audiofinder make test-coverage
-	@echo "✓ Docker coverage tests completed"
+docker-test-run: ## Run full test suite in container with docker networking
+	@echo "Running tests in test container..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test
+	@echo "✓ Container tests completed"
+
+docker-test-backend: ## Run backend unit tests in container
+	@echo "Running backend tests in container..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test \
+		pytest tests/ -v --tb=short --ignore=tests/frontend -W ignore::DeprecationWarning
+	@echo "✓ Backend tests completed"
+
+docker-test-frontend: ## Run frontend Selenium tests in container
+	@echo "Running frontend tests in container (integrated Selenium)..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test \
+		pytest tests/frontend/ -v --tb=short
+	@echo "✓ Frontend tests completed"
+
+docker-test-specific: ## Run specific test file in container (usage: make docker-test-specific TEST=test_verification.py)
+	@if [ -z "$(TEST)" ]; then \
+		echo "❌ ERROR: TEST variable not set"; \
+		echo "Usage: make docker-test-specific TEST=test_verification.py"; \
+		exit 1; \
+	fi
+	@echo "Running specific test: $(TEST)"
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test \
+		pytest tests/$(TEST) -v --tb=short
+	@echo "✓ Test completed"
+
+docker-test-coverage: ## Run tests with coverage report in container
+	@echo "Running tests with coverage in container..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test \
+		pytest tests/ --ignore=tests/frontend --cov=app --cov-report=html --cov-report=term -v
+	@echo "✓ Coverage tests completed"
+	@echo "📊 Coverage report available in htmlcov/index.html"
+
+docker-test-shell: ## Open shell in test container for debugging
+	@echo "Opening shell in test container..."
+	@echo "💡 TIP: You can run 'pytest tests/ -v' or 'make test-backend' inside the container"
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml run --rm mam-audiofinder-test /bin/bash
+
+docker-test-clean: ## Stop and remove test containers and volumes
+	@echo "Cleaning up test containers and volumes..."
+	@$(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.test.yml down -v
+	@echo "✓ Test containers and volumes removed"
 
 ##@ Development
 

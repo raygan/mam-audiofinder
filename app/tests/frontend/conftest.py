@@ -126,8 +126,19 @@ def _create_local_driver(browser_name: str, headless: bool) -> webdriver.Remote:
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
 
-        service = ChromeService(ChromeDriverManager().install())
-        return webdriver.Chrome(service=service, options=options)
+        # Check if running in container with system chromium
+        chromedriver_path = os.getenv("CHROMEDRIVER_PATH")
+        if chromedriver_path and os.path.exists(chromedriver_path):
+            # Use system-installed chromedriver (container mode)
+            chrome_bin = os.getenv("CHROME_BIN")
+            if chrome_bin:
+                options.binary_location = chrome_bin
+            service = ChromeService(executable_path=chromedriver_path)
+            return webdriver.Chrome(service=service, options=options)
+        else:
+            # Use webdriver_manager for local development
+            service = ChromeService(ChromeDriverManager().install())
+            return webdriver.Chrome(service=service, options=options)
 
     elif browser_name == "firefox":
         options = FirefoxOptions()

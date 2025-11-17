@@ -6,10 +6,16 @@ import os
 from pathlib import Path
 
 
+# ---------------------------- Paths Configuration ----------------------------
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
+COVERS_DIR = DATA_DIR / "covers"
+HISTORY_DB_PATH = os.getenv("HISTORY_DB_PATH", str(DATA_DIR / "history.db"))
+COVERS_DB_PATH = os.getenv("COVERS_DB_PATH", str(DATA_DIR / "covers.db"))
+
 # ---------------------------- Logging Configuration ----------------------------
 LOG_MAX_MB = int(os.getenv("LOG_MAX_MB", "5"))
 LOG_MAX_FILES = int(os.getenv("LOG_MAX_FILES", "5"))
-LOG_DIR = Path("/data/logs")
+LOG_DIR = DATA_DIR / "logs"
 
 # ---------------------------- MAM Configuration ----------------------------
 MAM_BASE = "https://www.myanonamouse.net"
@@ -56,9 +62,6 @@ LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
 IMPORT_MODE = os.getenv("IMPORT_MODE", "link")  # link|copy|move
 FLATTEN_DISCS = os.getenv("FLATTEN_DISCS", "true").lower() in ("true", "1", "yes")  # flatten multi-disc to sequential files
 AUDIO_EXTS = None  # copy everything except .cue
-
-# ---------------------------- Paths Configuration ----------------------------
-COVERS_DIR = Path("/data/covers")
 
 # ---------------------------- Apply UMASK ----------------------------
 def apply_umask():
