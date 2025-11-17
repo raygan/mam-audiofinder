@@ -308,7 +308,8 @@ class HardcoverClient:
         self,
         title: str,
         author: str = "",
-        limit: int = 10
+        limit: int = 10,
+        page: int = 1
     ) -> Optional[List[Dict[str, Any]]]:
         """
         Search for series by title and/or author.
@@ -316,7 +317,8 @@ class HardcoverClient:
         Args:
             title: Series name to search for
             author: Author name (optional)
-            limit: Maximum number of results
+            limit: Maximum number of results per page
+            page: Page number for pagination (default: 1)
 
         Returns:
             List of series dictionaries with keys:
@@ -331,8 +333,8 @@ class HardcoverClient:
         if not self.is_configured:
             return None
 
-        # Generate cache key
-        cache_key = self._get_cache_key("search", f"{title}|{author}")
+        # Generate cache key (include page for pagination)
+        cache_key = self._get_cache_key("search", f"{title}|{author}|page{page}|limit{limit}")
 
         # Check cache
         cached = await self._get_cached(cache_key)
@@ -352,10 +354,10 @@ class HardcoverClient:
             "query": title,
             "queryType": "Series",
             "perPage": limit,
-            "page": 1
+            "page": page
         }
 
-        logger.info(f"🔍 Searching Hardcover for series: '{title}' (author: '{author}')")
+        logger.info(f"🔍 Searching Hardcover for series: '{title}' (author: '{author}', page: {page}, limit: {limit})")
 
         # Execute query
         data = await self._execute_graphql(query, variables)
