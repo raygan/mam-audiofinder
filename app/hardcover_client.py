@@ -129,6 +129,12 @@ class HardcoverClient:
                     json=payload
                 )
 
+                # Log response for debugging (only in non-200 cases or at debug level)
+                if response.status_code != 200:
+                    logger.debug(f"🔍 Response status: {response.status_code}")
+                    logger.debug(f"🔍 Response headers: {dict(response.headers)}")
+                    logger.debug(f"🔍 Response body: {response.text[:500]}")
+
                 # Handle rate limiting (429)
                 if response.status_code == 429:
                     # Exponential backoff: 2s, 4s, 8s
@@ -160,7 +166,12 @@ class HardcoverClient:
                     logger.error(f"❌ GraphQL errors: {data['errors']}")
                     return None
 
-                return data.get("data")
+                # Log successful response structure at debug level
+                result_data = data.get("data")
+                if result_data:
+                    logger.debug(f"✅ GraphQL response keys: {list(result_data.keys())}")
+
+                return result_data
 
             except httpx.TimeoutException as e:
                 last_error = f"Timeout: {e}"
@@ -326,18 +337,30 @@ class HardcoverClient:
             # API call failed
             return None
 
-        if "search" not in data or "results" not in data["search"]:
-            logger.warning(f"⚠️  No results found for '{title}'")
+        if "search" not in data:
+            logger.warning(f"⚠️  No search results in response for '{title}'")
             return []
 
-        # Parse results - the API returns results as a JSON array
-        results = data["search"]["results"]
+        search_data = data["search"]
 
-        # If results is a string, parse it as JSON
+        # Log the search response structure for debugging
+        logger.debug(f"🔍 Search response keys: {list(search_data.keys())}")
+
+        # According to API docs, response contains: ids, results, query, query_type, page, per_page
+        results = search_data.get("results")
+        logger.debug(f"🔍 Results type: {type(results)}, length: {len(results) if isinstance(results, (list, str)) else 'N/A'}")
+
+        if results is None:
+            logger.warning(f"⚠️  No results field in search response for '{title}'")
+            return []
+
+        # Results should be an array of Typesense objects
+        # If it's a string (legacy behavior), parse it
         if isinstance(results, str):
             import json
             try:
                 results = json.loads(results)
+                logger.debug("📝 Parsed results from JSON string (legacy format)")
             except json.JSONDecodeError as e:
                 logger.error(f"❌ Failed to parse results JSON: {e}")
                 return []
@@ -347,16 +370,27 @@ class HardcoverClient:
             logger.warning(f"⚠️  Unexpected results format: {type(results)}")
             return []
 
-        # Transform results
+        if len(results) == 0:
+            logger.info(f"ℹ️  No series found matching '{title}'")
+            return []
+
+        # Transform results - handle various possible field structures from Typesense
         series_list = []
-        for item in results:
-            # Handle different possible field names from Hardcover API
+        for idx, item in enumerate(results):
+            # Typesense may wrap the actual document in a 'document' field
+            doc = item.get("document", item) if isinstance(item, dict) else item
+
+            # Log first item structure for debugging
+            if idx == 0:
+                logger.debug(f"🔍 First result keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
+
+            # Extract fields with defensive fallbacks
             series_list.append({
-                "series_id": item.get("id"),
-                "series_name": item.get("name", ""),
-                "author_name": item.get("author_name", ""),
-                "book_count": item.get("primary_books_count", item.get("book_count", 0)),
-                "readers_count": item.get("readers_count", 0)
+                "series_id": doc.get("id"),
+                "series_name": doc.get("name", ""),
+                "author_name": doc.get("author_name", ""),
+                "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
+                "readers_count": doc.get("readers_count", 0)
             })
 
         logger.info(f"✅ Found {len(series_list)} series matches")
