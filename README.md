@@ -338,6 +338,7 @@ For developers, contributors, or those wanting to understand the internals:
 
 - **[BACKEND.md](BACKEND.md)** - Backend architecture, database schemas, API endpoints, verification system
 - **[FRONTEND.md](FRONTEND.md)** - Frontend architecture, components, views, styling
+- **[TESTING.md](TESTING.md)** - Testing guide: local and container-based testing, Selenium integration
 - **[CLAUDE.md](../CLAUDE.md)** - AI assistant development guide
 
 ## Requirements
