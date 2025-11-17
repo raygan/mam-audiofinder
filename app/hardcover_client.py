@@ -346,16 +346,15 @@ class HardcoverClient:
         # Log the search response structure for debugging
         logger.debug(f"🔍 Search response keys: {list(search_data.keys())}")
 
-        # According to API docs, response contains: ids, results, query, query_type, page, per_page
+        # According to API docs, response structure is:
+        # { "search": { "results": { "found": N, "hits": [...] } } }
         results = search_data.get("results")
-        logger.debug(f"🔍 Results type: {type(results)}, length: {len(results) if isinstance(results, (list, str)) else 'N/A'}")
 
         if results is None:
             logger.warning(f"⚠️  No results field in search response for '{title}'")
             return []
 
-        # Results should be an array of Typesense objects
-        # If it's a string (legacy behavior), parse it
+        # Handle string response (legacy/unexpected format)
         if isinstance(results, str):
             import json
             try:
@@ -365,33 +364,66 @@ class HardcoverClient:
                 logger.error(f"❌ Failed to parse results JSON: {e}")
                 return []
 
-        # Ensure results is a list
-        if not isinstance(results, list):
-            logger.warning(f"⚠️  Unexpected results format: {type(results)}")
+        # Expected format: results is a dict with 'found' and 'hits' keys
+        if isinstance(results, dict):
+            found_count = results.get("found", 0)
+            hits = results.get("hits", [])
+
+            logger.debug(f"🔍 Results structure: found={found_count}, hits={len(hits)}")
+
+            if not hits:
+                logger.info(f"ℹ️  No series found matching '{title}' (found={found_count})")
+                return []
+
+            # Process hits array
+            series_list = []
+            for idx, hit in enumerate(hits):
+                # Each hit has a 'document' field containing the actual data
+                doc = hit.get("document", {})
+
+                # Log first item structure for debugging
+                if idx == 0:
+                    logger.debug(f"🔍 First hit keys: {list(hit.keys())}")
+                    logger.debug(f"🔍 First document keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
+
+                # Extract series fields
+                series_list.append({
+                    "series_id": doc.get("id"),
+                    "series_name": doc.get("name", ""),
+                    "author_name": doc.get("author_name", ""),
+                    "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
+                    "readers_count": doc.get("readers_count", 0)
+                })
+
+        # Fallback: if results is already a list (old/unexpected format)
+        elif isinstance(results, list):
+            logger.debug(f"🔍 Results is a list (unexpected format), processing {len(results)} items")
+
+            if len(results) == 0:
+                logger.info(f"ℹ️  No series found matching '{title}'")
+                return []
+
+            series_list = []
+            for idx, item in enumerate(results):
+                # Typesense may wrap the actual document in a 'document' field
+                doc = item.get("document", item) if isinstance(item, dict) else item
+
+                # Log first item structure for debugging
+                if idx == 0:
+                    logger.debug(f"🔍 First result keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
+
+                # Extract fields with defensive fallbacks
+                series_list.append({
+                    "series_id": doc.get("id"),
+                    "series_name": doc.get("name", ""),
+                    "author_name": doc.get("author_name", ""),
+                    "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
+                    "readers_count": doc.get("readers_count", 0)
+                })
+
+        else:
+            logger.error(f"❌ Unexpected results type: {type(results)}")
             return []
-
-        if len(results) == 0:
-            logger.info(f"ℹ️  No series found matching '{title}'")
-            return []
-
-        # Transform results - handle various possible field structures from Typesense
-        series_list = []
-        for idx, item in enumerate(results):
-            # Typesense may wrap the actual document in a 'document' field
-            doc = item.get("document", item) if isinstance(item, dict) else item
-
-            # Log first item structure for debugging
-            if idx == 0:
-                logger.debug(f"🔍 First result keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
-
-            # Extract fields with defensive fallbacks
-            series_list.append({
-                "series_id": doc.get("id"),
-                "series_name": doc.get("name", ""),
-                "author_name": doc.get("author_name", ""),
-                "book_count": doc.get("primary_books_count", doc.get("books_count", doc.get("book_count", 0))),
-                "readers_count": doc.get("readers_count", 0)
-            })
 
         logger.info(f"✅ Found {len(series_list)} series matches")
 
