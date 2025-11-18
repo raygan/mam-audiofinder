@@ -19,7 +19,7 @@ def description_service():
 @pytest.fixture
 def mock_abs_client():
     """Mock ABS client."""
-    with patch("description_service.abs_client") as mock:
+    with patch("abs_client.abs_client") as mock:
         mock.is_configured = True
         mock._get_cached_library_items = AsyncMock(return_value=[])
         mock.fetch_item_details = AsyncMock(return_value=None)
@@ -29,7 +29,7 @@ def mock_abs_client():
 @pytest.fixture
 def mock_hardcover_client():
     """Mock Hardcover client."""
-    with patch("description_service.hardcover_client") as mock:
+    with patch("hardcover_client.hardcover_client") as mock:
         mock.is_configured = True
         mock.search_book_by_title = AsyncMock(return_value=None)
         yield mock

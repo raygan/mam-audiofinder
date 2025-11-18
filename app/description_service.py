@@ -6,7 +6,7 @@ import logging
 import time
 import json
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import DESCRIPTION_FALLBACK_ENABLED, DESCRIPTION_CACHE_TTL
 
@@ -93,7 +93,7 @@ class DescriptionService:
                 "source": "none",
                 "metadata": {},
                 "cached": False,
-                "fetched_at": datetime.utcnow().isoformat() + "Z"
+                "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             }
 
         # Generate cache key
@@ -117,7 +117,7 @@ class DescriptionService:
                 "source": "abs",
                 "metadata": abs_result.get("metadata", {}),
                 "cached": False,
-                "fetched_at": datetime.utcnow().isoformat() + "Z"
+                "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             }
             # Cache the result
             self._cache[cache_key] = (result, time.time())
@@ -139,7 +139,7 @@ class DescriptionService:
                         "published_year": hardcover_result.get("published_year")
                     },
                     "cached": False,
-                    "fetched_at": datetime.utcnow().isoformat() + "Z"
+                    "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 }
                 # Cache the result
                 self._cache[cache_key] = (result, time.time())
@@ -153,7 +153,7 @@ class DescriptionService:
             "source": "none",
             "metadata": {},
             "cached": False,
-            "fetched_at": datetime.utcnow().isoformat() + "Z"
+            "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         }
         return result
 
