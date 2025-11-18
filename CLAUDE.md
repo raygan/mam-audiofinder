@@ -20,8 +20,10 @@ mam-audiofinder/
 │   ├── config.py               # Environment configuration
 │   ├── db/
 │   │   ├── db.py              # Database engines and migrations
-│   │   └── migrations/        # SQL migration files (001-008)
+│   │   └── migrations/        # SQL migration files (001-011)
 │   ├── abs_client.py          # Audiobookshelf API client (~850 lines)
+│   ├── description_service.py # Unified description service (~330 lines)
+│   ├── hardcover_client.py    # Hardcover GraphQL API client (~920 lines)
 │   ├── covers.py              # CoverService class (~350 lines)
 │   ├── qb_client.py           # qBittorrent API helpers
 │   ├── torrent_helpers.py     # Torrent state and matching
@@ -32,7 +34,9 @@ mam-audiofinder/
 │   │   ├── history.py         # History CRUD
 │   │   ├── qbittorrent.py     # qBittorrent operations
 │   │   ├── import_route.py    # Import logic
-│   │   ├── showcase.py        # Grouped search results (NEW)
+│   │   ├── showcase.py        # Grouped search results
+│   │   ├── series.py          # Hardcover series discovery
+│   │   ├── description_route.py # Unified description API
 │   │   ├── covers_route.py    # Cover serving
 │   │   └── logs_route.py      # Logs endpoint
 │   ├── static/
@@ -43,19 +47,23 @@ mam-audiofinder/
 │   │   │   ├── components/    # importForm.js, libraryIndicator.js
 │   │   │   └── pages/         # Entry scripts per page
 │   │   └── css/               # Stylesheets
-│   └── templates/
-│       └── *.html             # Jinja2 templates (base, search, history, showcase, logs)
-├── tests/                     # 223 test functions across 6 files
+│   ├── templates/
+│   │   └── *.html             # Jinja2 templates (base, search, history, showcase, logs)
+│   └── demo_description_fetch.py # Live demo script for description service
+├── tests/                     # 250+ test functions across 7 files
 │   ├── conftest.py           # Fixtures and configuration
 │   ├── test_search.py
 │   ├── test_covers.py
 │   ├── test_verification.py
 │   ├── test_description_fetch.py
+│   ├── test_description_service.py # 30+ tests for unified service
 │   ├── test_helpers.py
 │   └── test_migration_syntax.py
 ├── BACKEND.md                 # Technical implementation details
 ├── FRONTEND.md                # UI architecture documentation
 ├── README.md                  # User-facing documentation
+├── TESTING.md                 # Testing guide
+├── CLAUDE.md                  # AI assistant guide (this file)
 ├── env.example
 ├── Dockerfile
 └── docker-compose.yml
@@ -99,6 +107,18 @@ For detailed workflows, see [BACKEND.md](BACKEND.md).
 - `fetch_item_details()` - Description/metadata fetching
 - `_update_description_after_verification()` - Post-verification description fetch
 
+**`description_service.py` (~330 lines):** Unified description fetching with cascading fallback:
+- `get_description()` - ABS → Hardcover fallback with caching
+- Smart matching: ASIN/ISBN (200pts), Title (100pts), Author (50pts)
+- In-memory cache with 24hr TTL
+- Source tracking ('abs', 'hardcover', 'none')
+
+**`hardcover_client.py` (~920 lines):** Hardcover GraphQL API client:
+- `search_series()` - Series discovery with caching
+- `list_series_books()` - Book listings per series
+- `search_book_by_title()` - Book search for description fallback
+- Rate limiting (60 req/min) and retry logic
+
 **`covers.py`:** CoverService with local caching, auto-cleanup, auto-healing
 
 **`torrent_helpers.py`:** State mapping, path validation, MAM ID extraction, fuzzy matching
@@ -114,6 +134,7 @@ For detailed workflows, see [BACKEND.md](BACKEND.md).
 - `import_route.py` - POST /import (with verification + description fetch)
 - `showcase.py` - GET /api/showcase (grouped search results)
 - `series.py` - POST /api/series/search, GET /api/series/{id}/books (Hardcover integration)
+- `description_route.py` - POST /api/description/fetch, GET /api/description/stats (unified description service)
 - `covers_route.py` - GET /covers/{filename}
 - `logs_route.py` - GET /api/logs
 
