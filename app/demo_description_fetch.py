@@ -42,8 +42,25 @@ def print_result(result, book_title):
     if metadata:
         if 'book_id' in metadata:
             print(f"   Hardcover ID: {metadata.get('book_id')}")
+
+        # Handle authors (can be list of strings or list of dicts with 'name' field)
         if 'authors' in metadata:
-            print(f"   Authors: {', '.join(metadata.get('authors', []))}")
+            authors_raw = metadata.get('authors', [])
+            if authors_raw:
+                # Convert to list of strings if needed
+                author_names = []
+                for author in authors_raw:
+                    if isinstance(author, str):
+                        author_names.append(author)
+                    elif isinstance(author, dict):
+                        # ABS format: {"id": "...", "name": "Author Name"}
+                        author_names.append(author.get('name', 'Unknown'))
+                    else:
+                        author_names.append(str(author))
+
+                if author_names:
+                    print(f"   Authors: {', '.join(author_names)}")
+
         if 'series_names' in metadata:
             series = metadata.get('series_names', [])
             if series:
