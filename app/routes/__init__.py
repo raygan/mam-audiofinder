@@ -10,6 +10,7 @@ from .basic import router as basic_router
 from .logs_route import router as logs_router
 from .showcase import router as showcase_router
 from .series import router as series_router
+from .description_route import router as description_router
 
 # Create main router that includes all sub-routers
 main_router = APIRouter()
@@ -22,5 +23,6 @@ main_router.include_router(covers_router)
 main_router.include_router(logs_router)
 main_router.include_router(showcase_router)
 main_router.include_router(series_router)
+main_router.include_router(description_router)
 
 __all__ = ["main_router"]

@@ -703,6 +703,223 @@ class HardcoverClient:
 
         return results
 
+    async def search_book_by_title(
+        self,
+        title: str,
+        author: str = "",
+        limit: int = 5
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Search for a specific book by title and author, returning description.
+
+        This method searches Hardcover's book database for a specific book and
+        returns its description and metadata. Primarily used for description fallback
+        when ABS doesn't have a description.
+
+        Args:
+            title: Book title to search for
+            author: Author name (optional, improves matching accuracy)
+            limit: Maximum number of results to search (default: 5)
+
+        Returns:
+            Dictionary with:
+            - book_id: Hardcover book ID
+            - title: Book title
+            - description: Book description/synopsis
+            - authors: List of author names
+            - series_names: List of series this book belongs to
+            - published_year: Publication year
+            Returns None if API call fails or no matching book found.
+        """
+        if not self.is_configured:
+            logger.debug("⚠️  Hardcover API not configured")
+            return None
+
+        if not title.strip():
+            logger.warning("⚠️  No title provided for book search")
+            return None
+
+        # Generate cache key
+        cache_key = self._get_cache_key("book_search", f"{title}|{author}|limit{limit}")
+
+        # Check cache
+        cached = await self._get_cached(cache_key)
+        if cached is not None:
+            return cached.get("book")
+
+        # Build GraphQL query using Hardcover's search function
+        query = """
+        query SearchBooks($query: String!, $queryType: String!, $perPage: Int!) {
+          search(query: $query, query_type: $queryType, per_page: $perPage) {
+            results
+          }
+        }
+        """
+
+        # Construct search query (combine title + author for better matching)
+        search_query = f"{title} {author}".strip()
+
+        variables = {
+            "query": search_query,
+            "queryType": "Book",
+            "perPage": limit
+        }
+
+        logger.info(f"🔍 Searching Hardcover for book: '{title}' by '{author}' (limit: {limit})")
+
+        # Execute query
+        data = await self._execute_graphql(query, variables)
+
+        if data is None:
+            logger.warning(f"⚠️  Hardcover API call failed for '{title}'")
+            return None
+
+        if "search" not in data:
+            logger.warning(f"⚠️  No search results in response for '{title}'")
+            return None
+
+        search_data = data["search"]
+        results = search_data.get("results")
+
+        if results is None:
+            logger.warning(f"⚠️  No results field in search response for '{title}'")
+            return None
+
+        # Handle string response (parse JSON)
+        if isinstance(results, str):
+            import json
+            try:
+                results = json.loads(results)
+                logger.debug("📝 Parsed results from JSON string")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Failed to parse results JSON: {e}")
+                return None
+
+        # Expected format: results is a dict with 'found' and 'hits' keys
+        hits = []
+        if isinstance(results, dict):
+            found_count = results.get("found", 0)
+            hits = results.get("hits", [])
+            logger.debug(f"🔍 Book search: found={found_count}, hits={len(hits)}")
+        elif isinstance(results, list):
+            # Fallback: results is already a list
+            hits = results
+            logger.debug(f"🔍 Book search (list format): {len(hits)} results")
+        else:
+            logger.error(f"❌ Unexpected results type: {type(results)}")
+            return None
+
+        if not hits:
+            logger.info(f"ℹ️  No books found matching '{title}' by '{author}'")
+            return None
+
+        # Process hits and find best match
+        title_lower = title.lower().strip()
+        author_lower = author.lower().strip() if author else ""
+
+        best_match = None
+        best_score = 0
+
+        for idx, hit in enumerate(hits):
+            # Extract document from hit
+            doc = hit.get("document", {}) if isinstance(hit, dict) else hit
+
+            # Log first result for debugging
+            if idx == 0:
+                logger.debug(f"🔍 First hit keys: {list(doc.keys()) if isinstance(doc, dict) else 'Not a dict'}")
+
+            # Extract book fields
+            book_title = (doc.get("title") or "").lower().strip()
+            book_authors = doc.get("contributions") or []
+
+            # Calculate match score
+            score = 0
+
+            # Title matching
+            if book_title == title_lower:
+                score += 100  # Exact match
+            elif title_lower in book_title or book_title in title_lower:
+                score += 50  # Partial match
+
+            # Author matching (if provided)
+            if author_lower:
+                # contributions is an array of author objects
+                author_names = []
+                if isinstance(book_authors, list):
+                    for contrib in book_authors:
+                        if isinstance(contrib, dict):
+                            author_names.append((contrib.get("author", {}).get("name") or "").lower().strip())
+                        elif isinstance(contrib, str):
+                            author_names.append(contrib.lower().strip())
+
+                # Check for author match
+                for book_author in author_names:
+                    if book_author == author_lower:
+                        score += 50  # Exact author match
+                        break
+                    elif author_lower in book_author or book_author in author_lower:
+                        score += 25  # Partial author match
+                        break
+
+            # Update best match
+            if score > best_score:
+                best_score = score
+                best_match = doc
+                logger.debug(f"📊 New best match: '{book_title}' (score: {score})")
+
+        # Require minimum score of 50 (at least partial title match)
+        if not best_match or best_score < 50:
+            logger.info(f"ℹ️  No good match found for '{title}' (best score: {best_score})")
+            return None
+
+        # Extract description and metadata
+        description = best_match.get("description", "")
+        book_title = best_match.get("title", "")
+        book_id = best_match.get("id")
+
+        # Extract authors from contributions
+        contributions = best_match.get("contributions", [])
+        authors = []
+        if isinstance(contributions, list):
+            for contrib in contributions:
+                if isinstance(contrib, dict):
+                    author_obj = contrib.get("author", {})
+                    if isinstance(author_obj, dict):
+                        author_name = author_obj.get("name")
+                        if author_name:
+                            authors.append(author_name)
+                elif isinstance(contrib, str):
+                    authors.append(contrib)
+
+        # Extract series names
+        series_names = best_match.get("series_names", [])
+        if not isinstance(series_names, list):
+            series_names = []
+
+        # Extract publication year
+        published_year = best_match.get("release_year") or best_match.get("published_year")
+
+        result = {
+            "book_id": book_id,
+            "title": book_title,
+            "description": description,
+            "authors": authors,
+            "series_names": series_names,
+            "published_year": published_year
+        }
+
+        logger.info(f"✅ Found book: '{book_title}' (ID: {book_id}, description length: {len(description)} chars)")
+
+        # Cache the result
+        await self._set_cache(
+            cache_key,
+            "book_search",
+            {"book": result},
+            {"title": title, "author": author, "normalized": title.lower()}
+        )
+
+        return result
+
 
 # Global instance
 hardcover_client = HardcoverClient()

@@ -63,6 +63,10 @@ HARDCOVER_CACHE_TTL = int(os.getenv("HARDCOVER_CACHE_TTL", "300"))  # Cache dura
 HARDCOVER_RATE_LIMIT = int(os.getenv("HARDCOVER_RATE_LIMIT", "60"))  # Requests per minute (API limit: 60/min)
 HARDCOVER_SERIES_LIMIT = int(os.getenv("HARDCOVER_SERIES_LIMIT", "20"))  # Default number of series results to fetch
 
+# ---------------------------- Description Service Configuration ----------------------------
+DESCRIPTION_FALLBACK_ENABLED = os.getenv("DESCRIPTION_FALLBACK_ENABLED", "true").lower() in ("true", "1", "yes")
+DESCRIPTION_CACHE_TTL = int(os.getenv("DESCRIPTION_CACHE_TTL", "86400"))  # Cache duration in seconds (default: 24 hours)
+
 # ---------------------------- Import Configuration ----------------------------
 DL_DIR = os.getenv("DL_DIR", "/media/torrents")
 LIB_DIR = os.getenv("LIB_DIR", "/media/Books/Audiobooks")
