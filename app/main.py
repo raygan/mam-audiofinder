@@ -259,7 +259,7 @@ async def search(payload: dict):
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(f"{MAM_BASE}/tor/js/loadSearchJSONbasic.php",
+            r = await client.post(f"{settings.MAM_BASE}/tor/js/loadSearchJSONbasic.php",
                                   headers=headers, params=params, json=body)
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"MAM request failed: {e}")
@@ -385,7 +385,7 @@ async def add_to_qb(body: AddBody):
             if r.status_code == 200:
                 # ask qB for hash (by tag)
                 if mam_id:
-                    info = await client.get(f"{QB_URL}/api/v2/torrents/info",
+                    info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
                                             params={"tag": f"mamid={mam_id}", "filter": "all"})
                     try:
                         arr = info.json()
@@ -441,7 +441,7 @@ async def add_to_qb(body: AddBody):
 
         # After upload, try to fetch hash
         if mam_id:
-            info = await client.get(f"{QB_URL}/api/v2/torrents/info",
+            info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
                                     params={"tag": f"mamid={mam_id}", "filter": "all"})
             try:
                 arr = info.json()
@@ -497,7 +497,7 @@ async def qb_torrents():
             if not h:
                 continue
             # files to determine single vs multi + root
-            fr = await c.get(f"{QB_URL}/api/v2/torrents/files", params={"hash": h})
+            fr = await c.get(f"{settings.QB_URL}/api/v2/torrents/files", params={"hash": h})
             files = fr.json() if fr.status_code == 200 else []
             # compute top-level root (before first '/')
             roots = set()
