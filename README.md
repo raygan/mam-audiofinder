@@ -24,17 +24,23 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 
 ## Quick Start
 
-1. Clone this repository.
+This repository includes a `docker-compose.yml` for Docker users. The usual flow is:
+
+1. Clone this repository and `cd` into it:
+   ```bash
+   git clone https://github.com/raygan/mam-audiofinder.git
+   cd mam-audiofinder
+   ```
 2. Copy `.env.example` → `.env` and fill in the required **env-only** values:
    - App port and host paths (`APP_PORT`, `DATA_DIR`, and optionally `MEDIA_ROOT` if you use the single media mount for hard links)
    - Container user/permissions (`PUID`, `PGID`, `UMASK`)
    - You can either set MAM/qB details here (`MAM_COOKIE`, `QB_URL`, `QB_USER`, `QB_PASS`) or leave them commented out and fill them in later via the web setup UI.
-3. Start the container:
+3. (Optional) I reccomend mounting a single Docker volume (MEDIA\_ROOT, mounted as /media) that contains both your qBittorrent downloads AND your Audiobookshelf library, to allow for hard linking insteaed of copying between the two. If you prefer separate mounts instead of a single `MEDIA_ROOT`, adjust the `volumes` section in `docker-compose.yml` as shown in the storage examples below, and set `DL_DIR` / `LIB_DIR` in `.env` to match.
+4. Start the container with Docker Compose:
    ```bash
    docker compose up -d
    ```
-   
-4. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port).
+5. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port). On first run, you should land on `/setup` to configure MAM, qBittorrent, and library paths.
 
 ## Environment Variables
 
@@ -63,7 +69,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 
 ## Storage configuration examples
 
-The app only cares about the in‑container paths `DL_DIR` (qBittorrent downloads) and `LIB_DIR` (Audiobookshelf library). How you mount host paths into the container is up to you.
+The app only cares about the in‑container paths `DL_DIR` (qBittorrent downloads) and `LIB_DIR` (Audiobookshelf library). How you mount host paths into the container is up to you. For example:
 
 ### 1. Single media root (hardlink‑friendly)
 
@@ -95,7 +101,7 @@ Because both `DL_DIR` and `LIB_DIR` are under `/media` (and on the same filesyst
 
 ### 2. Separate mounts (downloads and library on different paths)
 
-If your downloads and library are on different host paths (or you don’t want to mount a large media tree), you can mount them separately and point `DL_DIR` / `LIB_DIR` directly at those locations inside the container. In this setup, `MEDIA_ROOT` is not used.
+If your downloads and library are on different host paths (for example, separate disks/volumes, or you don’t want to mount a large media tree), you must update `docker-compose.yml` to mount each path explicitly and then point `DL_DIR` / `LIB_DIR` at those in-container locations. In this setup, `MEDIA_ROOT` is not used.
 
 Example host layout:
 
@@ -122,7 +128,7 @@ LIB_DIR=/library
 Hardlinks will still work if `/downloads` and `/library` end up on the same underlying filesystem; otherwise the app automatically falls back to copying files.
 
 
-This project was created to scratch a personal itch, and was almost entirely vibe-coded with ChatGPT. I will probably not be developing it further, looking at issues, or accepting pull requests.
+This project was created to scratch a personal itch, and was almost entirely vibe-coded with OpenAI Codex. I will probably not be developing it further, looking at issues, or accepting pull requests.
 Do not run this on the open internet! 
 Are you a *real* developer? Do you want to fork or rewrite this project and make it not suck? Go for it!
 
