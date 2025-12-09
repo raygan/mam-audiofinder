@@ -92,6 +92,11 @@
   <div style="margin-left:auto">
     <button id="showHistoryBtn" title="Show download history">History & Import</button>
   </div>
+  {% if setup_enabled %}
+  <div style="margin-left:auto; margin-top:0.5rem">
+    <button type="button" onclick="window.location.href='/setup'">Setup / Configuration</button>
+  </div>
+  {% endif %}
 
   <script src="/static/app.js" defer></script>
 </body>
