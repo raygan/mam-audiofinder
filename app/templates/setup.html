@@ -13,6 +13,8 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
     header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
     h1 { font-size: 1.4rem; margin: 0; }
+    .title-link { color: inherit; text-decoration: none; cursor: pointer; }
+    .title-link:hover { text-decoration: underline; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 900px; }
     .row { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem; }
     label { font-weight: 500; }
@@ -28,20 +30,19 @@
 </head>
 <body>
   <header>
-    <h1>📚 MAM Audiobook Finder – First-time Setup</h1>
+    <h1><a href="/" class="title-link">📚 Audiobook Finder – Setup</a></h1>
   </header>
 
   <div class="card">
     <p class="muted">
-      Fill this out once to connect to MyAnonamouse, qBittorrent, and your Audiobookshelf library.
-      You can change these later at <code>/setup</code>.
+      Connect to MyAnonamouse, qBittorrent, and your Audiobookshelf library.
     </p>
 
     <form id="setupForm">
       <div class="row">
         <label for="mam_cookie">MyAnonamouse cookie</label>
         <textarea id="mam_cookie" name="mam_cookie" placeholder="Paste your MAM cookie or mam_id token"></textarea>
-        <small>You can paste either your full <code>Cookie:</code> header or just the <code>mam_id</code> token. Stored only on this server.</small>
+        <small>Create an ASN locked session from your <a href="https://www.myanonamouse.net/preferences/index.php?view=security">MyAnonymouse Preferences:Security Page</a>. Paste your session cookie here.</small>
       </div>
 
       <div class="row">
@@ -63,19 +64,19 @@
       <div class="row">
         <label for="qb_prefix">qBittorrent content path prefix</label>
         <input id="qb_prefix" name="qb_prefix" type="text" value="{{ qb_prefix }}" placeholder="/downloads" />
-        <small>The beginning of the path shown in qB's “Content” tab for a finished torrent (e.g. <code>/downloads</code>).</small>
+        <small>The beginning of the path shown in qB's “Content” tab for a finished torrent (e.g. <code>/downloads</code>). </br>If QBittorrent is running in Docker, this is the path <em>within</em> the QBittorrent container.</small>
       </div>
 
       <div class="row">
         <label for="app_prefix">Downloads path inside this container</label>
         <input id="app_prefix" name="app_prefix" type="text" value="{{ app_prefix }}" placeholder="/downloads" />
-        <small>The path inside this container where that same folder is mounted (e.g. <code>/downloads</code> or <code>/media/torrents</code>).</small>
+        <small>The path inside <em>this</em> container where that same torrent downloads directory is mounted (e.g. <code>/downloads</code> or <code>/media/torrents</code>).</small>
       </div>
 
       <div class="row">
         <label for="lib_dir">Audiobookshelf library directory (inside this container)</label>
         <input id="lib_dir" name="lib_dir" type="text" value="{{ lib_dir }}" placeholder="/library/audiobooks" />
-        <small>Where to place imported books, e.g. the root of your Audiobookshelf library.</small>
+        <small>Where to place imported books, e.g. the root of your Audiobookshelf library. This should be the path within <em>this</em> container.</small>
       </div>
 
       <div class="row">
@@ -96,4 +97,3 @@
   <script src="/static/setup.js" defer></script>
 </body>
 </html>
-
