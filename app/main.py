@@ -22,6 +22,10 @@ def load_json_config() -> dict:
     except Exception:
         return {}
 
+def is_setup_disabled() -> bool:
+    val = os.getenv("DISABLE_SETUP", "")
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
 def build_mam_cookie(raw: str) -> str:
     raw = (raw or "").strip()
     if not raw:
@@ -187,16 +191,21 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    if needs_setup():
+    setup_enabled = not is_setup_disabled()
+    if needs_setup() and setup_enabled:
         return templates.TemplateResponse("setup.html", setup_context(request))
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request, "setup_enabled": setup_enabled})
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
+    if is_setup_disabled():
+        raise HTTPException(status_code=404, detail="Not found")
     return templates.TemplateResponse("setup.html", setup_context(request))
 
 @app.post("/api/setup")
 async def api_setup(body: SetupPayload):
+    if is_setup_disabled():
+        raise HTTPException(status_code=404, detail="Not found")
     cfg = load_json_config()
     if not isinstance(cfg, dict):
         cfg = {}

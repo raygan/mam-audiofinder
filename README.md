@@ -54,6 +54,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 | `PUID`                 | Container user ID (for file permissions, default `99`)                      |
 | `PGID`                 | Container group ID (for file permissions, default `100`)                    |
 | `UMASK`                | File creation mask (default `0002`)                                         |
+| `DISABLE_SETUP`        | When set to `1`/`true`, hides the setup button and disables `/setup` and `/api/setup` after initial configuration |
 
 
 This project was created to scratch a personal itch, and was almost entirely vibe-coded with ChatGPT. I will probably not be developing it further, looking at issues, or accepting pull requests.
