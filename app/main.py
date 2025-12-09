@@ -100,7 +100,7 @@ class Settings:
         self.QB_POSTIMPORT_CATEGORY = cfg.get("QB_POSTIMPORT_CATEGORY") or os.getenv("QB_POSTIMPORT_CATEGORY", "")
 
         self.DL_DIR = cfg.get("DL_DIR") or os.getenv("DL_DIR", "/media/torrents")
-        self.LIB_DIR = cfg.get("LIB_DIR") or os.getenv("LIB_DIR", "/media/Books/Audiobooks")
+        self.LIB_DIR = cfg.get("LIB_DIR") or os.getenv("LIB_DIR", "/media/audiobookshelf")
         self.IMPORT_MODE = (cfg.get("IMPORT_MODE") or os.getenv("IMPORT_MODE", "link")).lower()
 
         self.QB_INNER_DL_PREFIX = cfg.get("QB_INNER_DL_PREFIX") or os.getenv("QB_INNER_DL_PREFIX", "/downloads")
