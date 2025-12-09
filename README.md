@@ -22,6 +22,14 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 - A valid MAM session cookie  
 - Docker & Docker Compose
 
+## Because You'll Ask
+
+***Why build this*** instead of using Readarr or one of its revivals, forks, or related projects?
+- This uses the MAM API directly, not just for finding books but also for metadata. It doesn't rely on any other systems or databases. This is great for me because when a book shows up in my search results I KNOW I can download it, and I know the metadata like narrator and format will be accurate.
+- I wanted something I could use from my phone that would be as fast as I could make it. This is very fast.
+- This also keeps things dead simple. There's no queue, no requests, no ranking of multiple sources, no usenet, no RSS. Just search, download, and import to library.
+
+
 ## Quick Start
 
 This repository includes a `docker-compose.yml` for Docker users. The usual flow is:

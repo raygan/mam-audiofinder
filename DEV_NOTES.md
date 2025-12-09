@@ -1,7 +1,6 @@
-# Dev Notes – mam-audiofinder (0.6-testing)
+# Dev Notes – mam-audiofinder (0.6 path-mapping & setup)
 
-Branch: `0.6-testing`  
-Purpose: make the app easier to run on diverse self‑hosted setups via explicit path mapping and a first‑run setup wizard.
+Purpose: make the app easier to run on diverse self‑hosted setups via explicit path mapping and a first‑run setup wizard, with an option to lock the setup UI after configuration.
 
 ## Key Changes Implemented
 
@@ -16,10 +15,13 @@ Purpose: make the app easier to run on diverse self‑hosted setups via explicit
     - Fallback: `QB_INNER_DL_PREFIX` → `DL_DIR`.
   - `do_import` now uses this mapping in `map_qb_path`, with legacy Unraid heuristics left as secondary fallbacks.
 - Added a first‑run setup wizard:
-  - `GET /` serves `setup.html` if `needs_setup()` (no cookie, no lib dir, or no path map).
-  - `GET /setup` always shows the wizard.
+  - `GET /` serves `setup.html` if `needs_setup()` (no cookie, no lib dir, or no path map) and setup is not disabled via env.
+  - `GET /setup` shows the wizard unless `DISABLE_SETUP` is set (then it returns 404).
   - `POST /api/setup` writes `/data/config.json` and calls `settings.reload()`.
   - UI files: `app/templates/setup.html`, `app/static/setup.js`.
+- Setup UX tweaks:
+  - Main page includes a “Setup / Configuration” button (hidden when `DISABLE_SETUP` is enabled).
+  - The setup page title links back to `/`.
 - Root‑level `AGENTS.md` documents repo conventions and agent guidance.
 
 ## How to Run for Testing
@@ -29,11 +31,9 @@ Purpose: make the app easier to run on diverse self‑hosted setups via explicit
   - Optionally set `APP_CONFIG_PATH=../dev-config.json` to avoid writing into `/data`.
 - Docker (on Unraid or similar):
   - Update `.env` for mounts and ports, then `docker compose up -d`.
-  - First visit to `/` should trigger the setup wizard.
+  - First visit to `/` on a fresh data directory should trigger the setup wizard (unless `DISABLE_SETUP` is set).
 
 ## Possible Next Steps
 
 - Add a “Test qB connection” button on the setup page (hit `/api/v2/app/version`).
 - Improve error messages when `map_qb_path` cannot resolve a path.
-- Document `QB_PATH_MAP` usage more prominently in `README.md`.
-
