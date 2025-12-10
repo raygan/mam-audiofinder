@@ -1,8 +1,6 @@
-# Dev Notes – mam-audiofinder (0.6 path-mapping & setup)
+# Dev Notes – mam-audiofinder
 
-Purpose: make the app easier to run on diverse self‑hosted setups via explicit path mapping and a first‑run setup wizard, with an option to lock the setup UI after configuration.
-
-## Key Changes Implemented
+## Recent Key Changes Implemented
 
 - Added a `Settings` helper in `app/main.py`:
   - Loads config from `/data/config.json` (or `APP_CONFIG_PATH`) and falls back to env vars.
@@ -33,7 +31,22 @@ Purpose: make the app easier to run on diverse self‑hosted setups via explicit
   - Update `.env` for mounts and ports, then `docker compose up -d`.
   - First visit to `/` on a fresh data directory should trigger the setup wizard (unless `DISABLE_SETUP` is set).
 
+## Release Notes / Checklist (GHCR)
+
+- Build and tag image from repo root:
+  - `docker build -t ghcr.io/raygan/mam-audiofinder:0.6 -t ghcr.io/raygan/mam-audiofinder:latest .`
+- Login to GHCR (once per machine):
+  - `echo "$GHCR_PAT" | docker login ghcr.io -u raygan --password-stdin`
+- Push tags:
+  - `docker push ghcr.io/raygan/mam-audiofinder:0.6`
+  - `docker push ghcr.io/raygan/mam-audiofinder:latest`
+- Consumers update via:
+  - `docker compose pull && docker compose up -d`
+
 ## Possible Next Steps
 
 - Add a “Test qB connection” button on the setup page (hit `/api/v2/app/version`).
 - Improve error messages when `map_qb_path` cannot resolve a path.
+- Add a minimal `pytest` suite that mocks MAM/qB and exercises `/health`, `/search`, `/add`, `/qb/torrents`, and `/import` using a temp `/data` directory.
+- Investigate adding real time download status for recently added torrents
+- Investigate displaying artwork. Available via MAM API?
