@@ -13,6 +13,7 @@
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
     header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
     h1 { font-size: 1.4rem; margin: 0; }
+    .logo { height: 1.6rem; width: auto; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 1100px; }
     .row { display:flex; gap:0.5rem; flex-wrap: wrap; }
     input[type="text"] { flex:1; min-width: 260px; padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
@@ -29,7 +30,8 @@
 </head>
 <body>
   <header>
-    <h1>📚 Audiobook Finder</h1>
+    <img src="/static/logo.png" alt="Audiobook Finder logo" class="logo" />
+    <h1>Audiobook Finder</h1>
     <span class="muted">Download Audiobooks and Import to Audiobookshelf</span>
   </header>
 
