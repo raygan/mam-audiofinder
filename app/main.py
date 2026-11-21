@@ -287,12 +287,17 @@ async def search(payload: dict):
     return JSONResponse(result)
 
 # ---------------------------- qB API helpers ----------------------------
+def qb_error(detail: str) -> HTTPException:
+    detail = mam.redact(detail)
+    log.warning("qB request failed: %s", detail)
+    return HTTPException(status_code=UPSTREAM_FAILED, detail=detail)
+
 async def qb_login(client: httpx.AsyncClient):
     r = await client.post(f"{settings.QB_URL}/api/v2/auth/login",
                           data={"username": settings.QB_USER, "password": settings.QB_PASS},
                           timeout=20)
     if r.status_code != 200 or "Ok" not in (r.text or ""):
-        raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB login failed: {r.status_code} {r.text[:120]}")
+        raise qb_error(f"qB login failed: {r.status_code} {r.text[:120]}")
 
 # ---------------------------- Add-to-qB ----------------------------
 class AddBody(BaseModel):
@@ -359,14 +364,14 @@ async def add_to_qb(body: AddBody):
             form["urls"] = mam.build_dl_url(dl, mam_id)
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
             if r.status_code != 200 or "fail" in (r.text or "").lower():
-                raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB add (url) failed: {r.status_code} {mam.redact(r.text[:160])}")
+                raise qb_error(f"qB add (url) failed: {r.status_code} {r.text[:160]}")
         else:
             # No dl hash: one cookie-authenticated GET download.php?tid=<id>, then upload.
             torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
             files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
             if r.status_code != 200 or "fail" in (r.text or "").lower():
-                raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
+                raise qb_error(f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 
         qb_hash = await qb_find_hash(client, mam_id, title)
 
