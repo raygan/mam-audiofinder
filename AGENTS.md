@@ -1,5 +1,12 @@
 # Repository Guidelines
 
+## MAM Compliance (read first)
+
+- MyAnonamouse rule 1.7 overrides everything else in this repo. Read `docs/MAM_RULES.md` and the "MAM rules come first" section of `docs/ROADMAP.md` before any work.
+- All MAM traffic goes through `app/mam.py` and its allowlist guard (`check_allowed`). Never call MAM from anywhere else, and never add an endpoint or parameter that isn't in `docs/MAM_API_ALLOWLIST.md`.
+- `docs/MAM_COMPLIANCE.md` maps each rule to the code and tests that enforce it. Keep it current.
+- Agents must never contact myanonamouse.net or read `.env`, `/data/config.json` or any cookie. Work from fixtures in `tests/fixtures/`.
+
 ## Project Structure & Modules
 
 - Backend FastAPI app lives in `app/main.py`.
@@ -28,8 +35,11 @@
 
 ## Testing Guidelines
 
-- There is no formal test suite yet.
-- When changing backend logic, at minimum:
+- Tests live in `tests/` (pytest, httpx `MockTransport`, fixtures only, no network). `pytest` is in `requirements-dev.txt`, so it isn't installed in the runtime image.
+  - Setup: `python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`
+  - Run: `.venv/bin/python -m pytest -q`
+- Any change to `app/mam.py` needs tests that prove disallowed requests are rejected and never sent.
+- When changing backend logic, also:
   - Hit `/health`, `/search`, `/add`, `/qb/torrents`, `/import` manually in a dev environment.
   - Exercise new code paths via the web UI.
 
