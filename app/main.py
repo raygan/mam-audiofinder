@@ -308,11 +308,18 @@ def qb_error(detail: str) -> HTTPException:
     log.warning("qB request failed: %s", detail)
     return HTTPException(status_code=UPSTREAM_FAILED, detail=detail)
 
+def qb_login_ok(r: httpx.Response) -> bool:
+    """Older qB replies 200 'Ok.'; newer qB can reply 204 No Content.
+    Wrong credentials are 200 'Fails.'; a banned IP is 403."""
+    if r.status_code == 204:
+        return True
+    return r.status_code == 200 and (r.text or "").strip() == "Ok."
+
 async def qb_login(client: httpx.AsyncClient):
     r = await client.post(f"{settings.QB_URL}/api/v2/auth/login",
                           data={"username": settings.QB_USER, "password": settings.QB_PASS},
                           timeout=20)
-    if r.status_code != 200 or "Ok" not in (r.text or ""):
+    if not qb_login_ok(r):
         raise qb_error(f"qB login failed: {r.status_code} {r.text[:120]}")
 
 # ---------------------------- Add-to-qB ----------------------------
@@ -504,8 +511,8 @@ def do_import(body: ImportBody):
         # login
         lr = c.post(f"{settings.QB_URL}/api/v2/auth/login",
                     data={"username": settings.QB_USER, "password": settings.QB_PASS})
-        if lr.status_code != 200 or "Ok" not in lr.text:
-            raise HTTPException(status_code=UPSTREAM_FAILED, detail="qB login failed")
+        if not qb_login_ok(lr):
+            raise qb_error(f"qB login failed: {lr.status_code} {lr.text[:120]}")
 
         # files (used to detect single-file)
         fr = c.get(f"{settings.QB_URL}/api/v2/torrents/files", params={"hash": h})
@@ -577,7 +584,7 @@ def do_import(body: ImportBody):
                     f"{settings.QB_URL}/api/v2/auth/login",
                     data={"username": settings.QB_USER, "password": settings.QB_PASS},
                 )
-                if lr.status_code == 200 and "Ok" in (lr.text or ""):
+                if qb_login_ok(lr):
                     # Setting to empty string unsets the category on most qB versions.
                     # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY to that name.
                     c2.post(

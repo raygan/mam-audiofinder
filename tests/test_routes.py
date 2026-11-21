@@ -155,3 +155,24 @@ def test_add_succeeds_with_newer_qb_json_reply(net, client):
     net.qb_handler = qb
     r = client.post("/add", json={"id": "123", "dl": DL})
     assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("reply,ok", [
+    (httpx.Response(200, text="Ok."), True),
+    (httpx.Response(204), True),
+    (httpx.Response(200, text="Fails."), False),
+    (httpx.Response(403, text="Forbidden"), False),
+    (httpx.Response(401), False),
+])
+def test_qb_login_reply_parsing(reply, ok):
+    assert main.qb_login_ok(reply) is ok
+
+
+def test_add_works_when_qb_login_returns_204(net, client):
+    def qb(request):
+        if request.url.path == "/api/v2/auth/login":
+            return httpx.Response(204)
+        return net.default_qb(request)
+    net.qb_handler = qb
+    r = client.post("/add", json={"id": "123", "dl": DL})
+    assert r.status_code == 200, r.text
