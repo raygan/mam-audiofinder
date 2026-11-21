@@ -9,3 +9,11 @@ __pycache__/
 
 # OS/editor
 .DS_Store
+
+# Claude Code personal settings & local dev config
+.claude/settings.local.json
+dev-config.json
+
+# Local venv
+.venv/
+.pytest_cache/

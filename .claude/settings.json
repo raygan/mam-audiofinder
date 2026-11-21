@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "WebFetch(domain:myanonamouse.net)",
+      "WebFetch(domain:www.myanonamouse.net)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./data/**)",
+      "Read(./dev-config.json)"
+    ]
+  }
+}
