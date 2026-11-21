@@ -22,7 +22,39 @@
   - The setup page title links back to `/`.
 - Root‑level `AGENTS.md` documents repo conventions and agent guidance.
 
+## Phase 0a (v0.7.0): MAM compliance
+
+- New `app/mam.py` is the only module that talks to MAM. Its allowlist guard enforces `docs/MAM_API_ALLOWLIST.md`. Mapping: `docs/MAM_COMPLIANCE.md`.
+- It sends an honest `User-Agent: mam-audiofinder/<version>` and no `Origin`/`Referer`. It sends only the `mam_id` cookie.
+- `MAM_BASE` was removed (it's ignored with a warning if set).
+- Downloads: qB gets `download.php/<dl>?tid=<id>`; with no `dl`, the app makes one cookie GET of `download.php?tid=<id>`. The `?id=` fallback is gone, and if qB rejects the URL there's no fallback.
+- New env vars, internal and not user-facing: `APP_DB_PATH` (default `/data/history.db`, used by tests), and `MAM_CAPTURE_DIR` (fixture capture, below).
+
+### Capturing sanitized MAM fixtures (Raygan only)
+
+The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes a sanitized copy of each MAM response from a normal, user-initiated search or add. `dl` hashes become same-shape dummies (e.g. `AAaa00`), `owner`/`owner_name` are blanked, `Set-Cookie` isn't stored, and HTML bodies are never stored. It makes no extra requests. It's off by default; unset it when you're done.
+
+1. Add `MAM_CAPTURE_DIR=/data/fixtures` to `.env` (or the container env) and restart.
+2. In the web UI, do these searches yourself:
+   - one audiobook search that returns results,
+   - one search that returns nothing (e.g. `zzqqxxnotabook`),
+   - later, once Phase 1 adds the selector, one ebook search.
+3. Optional: an auth-failure capture. One way is to wait until the cookie expires naturally and run a search. Another is to temporarily paste a junk cookie in Setup and run one search. Only do this if you're comfortable sending one request with an invalid cookie.
+4. Open the files in `<DATA_DIR>/fixtures/` and check them before sharing. They contain titles and your own `my_snatched`/`bookmarked` flags, but no cookie or real `dl` hash.
+5. Copy them into `tests/fixtures/` in the repo, then remove `MAM_CAPTURE_DIR`.
+
+## Phase 0b (v0.7.0): groundwork
+
+- `main.py` is split into `config.py`, `db.py`, `qb.py` and `importer.py`; `main.py` keeps the routes (see AGENTS.md). Behaviour is unchanged, and the Import tests were written before the move to prove it.
+- `qb.add_from_mam(mam_id, dl, title)` is the single path for adding a MAM torrent to qB.
+- `/import` is now async. qB calls are async, and file copying runs in a threadpool so it doesn't block the server. It no longer fetches the unused torrent properties.
+- Versioned migrations: a `schema_version` table and `db.MIGRATIONS`. Migration 1 brings any older DB up to the v0.6 columns without touching rows; migration 2 indexes `history.mam_id`. They run on startup. **Back up `history.db` before the first start of 0.7.**
+- Housekeeping: all timestamps are timezone-aware UTC (`db.utc_now()`), the double `r.json()` in `/qb/torrents` is gone, and history inserts go through one helper.
+- Still open: see "Known gaps" in `docs/MAM_COMPLIANCE.md` (missing `dl` hash TODO, auth-failure fixture, `dl` character set).
+
 ## How to Run for Testing
+
+- Tests (no network): `python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`, then `.venv/bin/python -m pytest -q`.
 
 - Local dev (no Docker), from `app/`:
   - `uvicorn main:app --reload --host 0.0.0.0 --port 8080`

@@ -16,10 +16,16 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks, add t
 - ZERO AUTHENTICATION (*Please* don't put this on the open internet. Tailscale or a Cloudflare Tunnel with Cloudflare Access might be good options.)
 - Spouse tested and approved
 
+## MAM rules and your account
+
+This app only uses endpoints listed in MAM's API Documentation: the JSON torrent search (`/tor/js/loadSearchJSONbasic.php`) and the torrent download (`/tor/download.php`). It authenticates with a `mam_id` cookie you generate in MAM's Preferences → Security, and nothing else. It never asks for, stores or uses your MAM username or password, never logs in for you, and never fetches or scrapes MAM web pages. It identifies itself honestly as `mam-audiofinder/<version>` and stops on any authentication or rate-limit error instead of retrying.
+
+You are still responsible for everything done under your account. Read MAM's rule 1.7 (Bots, Automation, and Scraping) before using this or any other tool with MAM. Details of how the app enforces this are in [`docs/MAM_COMPLIANCE.md`](docs/MAM_COMPLIANCE.md).
+
 ## Requirements
 
 - qBittorrent with WebUI enabled  
-- A valid MAM session cookie  
+- A valid MAM `mam_id` session cookie (Preferences → Security; ASN-locked recommended)  
 - Docker & Docker Compose
 
 ## Because You'll Ask
@@ -54,7 +60,7 @@ This repository includes a `docker-compose.yml` for Docker users. The usual flow
 
 | Variable               | Description                                                                 |
 |------------------------|-----------------------------------------------------------------------------|
-| `MAM_COOKIE`           | Your MAM session cookie (use ASN-locked cookie)                             |
+| `MAM_COOKIE`           | Your MAM `mam_id` cookie value (use an ASN-locked session). Only `mam_id` is sent; any other cookies pasted are ignored |
 | `QB_URL`               | qBittorrent WebUI URL (e.g. `http://qbittorrent:8080`)                      |
 | `QB_USER`              | qBittorrent WebUI username                                                  |
 | `QB_PASS`              | qBittorrent WebUI password                                                  |

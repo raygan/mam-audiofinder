@@ -56,7 +56,14 @@ async function runSearch() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tor: { text, sortType }, perpage })
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const j = await resp.json();
+        if (j?.detail) msg = j.detail;
+      } catch {}
+      throw new Error(msg);
+    }
     const data = await resp.json();
 
     const rows = data.results || [];
@@ -89,6 +96,11 @@ async function runSearch() {
               narrator: it.narrator_info || ''
             })
           });
+          if (resp.status === 409) {
+            addBtn.textContent = 'Already in qB';
+            addBtn.title = 'This torrent is already in qBittorrent';
+            return;
+          }
           if (!resp.ok) {
             let msg = `HTTP ${resp.status}`;
             try {
@@ -102,7 +114,9 @@ async function runSearch() {
         } catch (e) {
           console.error(e);
           addBtn.textContent = 'Error';
+          addBtn.title = e.message;
           addBtn.disabled = false;
+          statusEl.textContent = `Add failed: ${e.message}`;
         }
       });
 
@@ -131,7 +145,7 @@ async function runSearch() {
     await loadHistory();
   } catch (e) {
     console.error(e);
-    statusEl.textContent = 'Search failed.';
+    statusEl.textContent = `Search failed: ${e.message}`;
   }
 }
 

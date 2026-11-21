@@ -1,0 +1,44 @@
+{
+  "_synthetic": "Hand-written from the field list in docs/MAM_API_ALLOWLIST.md. Not a real MAM response. Replace with sanitized captures when available.",
+  "data": [
+    {
+      "id": "100001",
+      "title": "Example Audiobook Title",
+      "main_cat": "13",
+      "category": "39",
+      "catname": "Audiobooks - Fantasy",
+      "author_info": "{\"1\": \"Ann Author\"}",
+      "narrator_info": "{\"2\": \"Ned Narrator\", \"3\": \"Nia Narrator\"}",
+      "series_info": "{}",
+      "filetypes": "m4b",
+      "size": "123456789",
+      "numfiles": "1",
+      "seeders": "12",
+      "leechers": "0",
+      "times_completed": "40",
+      "added": "2026-01-02 03:04:05",
+      "free": "0",
+      "vip": "0",
+      "my_snatched": "0",
+      "owner": "999",
+      "owner_name": "someuploader",
+      "dl": "FAKEdlHASHaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "100002",
+      "name": "Second Title Uses Name Key",
+      "main_cat": "13",
+      "catname": "Audiobooks - Mystery",
+      "author_info": "{\"4\": \"Bea Writer\"}",
+      "narrator_info": "",
+      "filetype": "mp3",
+      "size": "987654",
+      "seeders": "3",
+      "leechers": "1",
+      "added": "2026-02-03 04:05:06",
+      "dl": "FAKEdlHASHbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "total": "2",
+  "total_found": "2"
+}
