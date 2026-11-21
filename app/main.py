@@ -1,4 +1,5 @@
-import os, json, re
+import os, json, re, logging
+from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -6,8 +7,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Tuple
+
+import mam
+
+log = logging.getLogger("mam-audiofinder")
+APP_DIR = Path(__file__).resolve().parent
 
 # ---------------------------- Config ----------------------------
 CONFIG_PATH = os.getenv("APP_CONFIG_PATH", "/data/config.json")
@@ -25,18 +32,6 @@ def load_json_config() -> dict:
 def is_setup_disabled() -> bool:
     val = os.getenv("DISABLE_SETUP", "")
     return str(val).strip().lower() in ("1", "true", "yes", "on")
-
-def build_mam_cookie(raw: str) -> str:
-    raw = (raw or "").strip()
-    if not raw:
-        return ""
-    # If user pasted full cookie header, use it as-is
-    if "mam_id=" in raw or "mam_session=" in raw:
-        return raw
-    # If ASN single-token was pasted, wrap it
-    if raw and "=" not in raw and ";" not in raw:
-        return f"mam_id={raw}"
-    return raw
 
 def build_qb_path_map(raw_cfg, raw_env: str | None, dl_dir: str, qb_inner_prefix: str) -> List[Tuple[str, str]]:
     pairs: List[Tuple[str, str]] = []
@@ -83,12 +78,17 @@ class Settings:
     def reload(self) -> None:
         cfg = load_json_config()
 
-        self.MAM_BASE = cfg.get("MAM_BASE") or os.getenv("MAM_BASE", "https://www.myanonamouse.net")
+        # The MAM base URL is fixed in mam.py; MAM_BASE is no longer configurable.
+        legacy_base = cfg.get("MAM_BASE") or os.getenv("MAM_BASE")
+        if legacy_base and legacy_base.rstrip("/") != mam.MAM_BASE:
+            log.warning("Ignoring MAM_BASE=%r; the app only talks to %s", legacy_base, mam.MAM_BASE)
 
         raw_cookie = cfg.get("MAM_COOKIE")
         if raw_cookie is None:
             raw_cookie = os.getenv("MAM_COOKIE", "")
-        self.MAM_COOKIE = build_mam_cookie(raw_cookie)
+        # Only the mam_id cookie is ever sent; anything else pasted is dropped.
+        self.MAM_COOKIE = mam.build_cookie(raw_cookie)
+        mam.register_secret(self.MAM_COOKIE.partition("=")[2])
 
         self.QB_URL = (cfg.get("QB_URL") or os.getenv("QB_URL", "http://qbittorrent:8080")).rstrip("/")
         self.QB_USER = cfg.get("QB_USER") or os.getenv("QB_USER", "admin")
@@ -123,7 +123,8 @@ if _um:
 
 # ---------------------------- DB ----------------------------
 # /data should be a volume/bind mount
-engine = create_engine("sqlite:////data/history.db", future=True)
+DB_PATH = os.getenv("APP_DB_PATH", "/data/history.db")
+engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 with engine.begin() as cx:
     cx.execute(text("""
         CREATE TABLE IF NOT EXISTS history (
@@ -180,10 +181,28 @@ class SetupPayload(BaseModel):
     app_prefix: str | None = None
 
 # ---------------------------- App ----------------------------
-app = FastAPI(title="MAM Audiobook Finder", version="0.3.0")
+@asynccontextmanager
+async def lifespan(_app):
+    # uvicorn attaches its log handlers after import; cover those too.
+    mam.install_log_redaction()
+    yield
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app = FastAPI(title="MAM Audiobook Finder", version=mam.APP_VERSION, lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=APP_DIR / "templates")
+
+mam.install_log_redaction()
+
+@app.exception_handler(mam.MamError)
+async def mam_error_handler(request: Request, exc: mam.MamError):
+    # Fail closed: surface the reason, never retry, never fall back.
+    status = 400 if isinstance(exc, mam.MamEndpointNotAllowed) else 502
+    detail = mam.redact(str(exc))
+    if isinstance(exc, mam.MamAuthError):
+        detail += ". Update the mam_id cookie in Setup."
+    log.warning("MAM request stopped (%s): %s", type(exc).__name__, detail)
+    return JSONResponse({"detail": detail, "error": type(exc).__name__}, status_code=status)
 
 @app.get("/health")
 async def health():
@@ -245,99 +264,22 @@ async def search(payload: dict):
     if not settings.MAM_COOKIE:
         raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
 
-    tor = payload.get("tor", {}) or {}
-    tor.setdefault("text", "")
-    tor.setdefault("srchIn", ["title", "author", "narrator"])
-    tor.setdefault("searchType", "all")
-    tor.setdefault("sortType", "default")
-    tor.setdefault("startNumber", "0")
-    tor.setdefault("main_cat", ["13"])  # Audiobooks
+    # Only these fields are taken from the client; mam.search builds the
+    # request and the allowlist guard validates it.
+    tor = payload.get("tor") or {}
+    if not isinstance(tor, dict):
+        raise HTTPException(status_code=400, detail="tor must be an object")
+    text_q = tor.get("text") or ""
+    if not isinstance(text_q, str):
+        raise HTTPException(status_code=400, detail="tor.text must be a string")
 
-    perpage = payload.get("perpage", 25)
-    body = {"tor": tor, "perpage": perpage}
-
-    headers = {
-        "Cookie": settings.MAM_COOKIE,
-        "Content-Type": "application/json",
-        "Accept": "application/json, */*",
-        "User-Agent": "Mozilla/5.0",
-        "Origin": "https://www.myanonamouse.net",
-        "Referer": "https://www.myanonamouse.net/",
-    }
-    params = {"dlLink": "1"}
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(f"{settings.MAM_BASE}/tor/js/loadSearchJSONbasic.php",
-                                  headers=headers, params=params, json=body)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"MAM request failed: {e}")
-
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"MAM HTTP {r.status_code}: {r.text[:300]}")
-    try:
-        raw = r.json()
-    except ValueError:
-        raise HTTPException(status_code=502, detail=f"MAM returned non-JSON. Body: {r.text[:300]}")
-
-    def flatten(v):
-        # {"8320":"John Steinbeck"} or JSON-string -> "John Steinbeck"
-        if isinstance(v, dict):
-            return ", ".join(str(x) for x in v.values())
-        if isinstance(v, list):
-            return ", ".join(str(x) for x in v)
-        if isinstance(v, str):
-            s = v.strip()
-            if s.startswith("{") or s.startswith("["):
-                try:
-                    obj = json.loads(s)
-                    if isinstance(obj, dict):
-                        return ", ".join(str(x) for x in obj.values())
-                    if isinstance(obj, list):
-                        return ", ".join(str(x) for x in obj)
-                except Exception:
-                    pass
-            s = re.sub(r'^\{|\}$', '', s)
-            parts = []
-            for chunk in s.split(","):
-                parts.append(chunk.split(":", 1)[-1])
-            parts = [p.strip().strip('"').strip("'") for p in parts if p.strip()]
-            return ", ".join(parts)
-        return "" if v is None else str(v)
-
-    def detect_format(item: dict) -> str:
-        for key in ("format", "filetype", "container", "encoding", "format_name"):
-            val = item.get(key)
-            if isinstance(val, str) and val.strip():
-                return val.strip()
-        name = (item.get("title") or item.get("name") or "")
-        toks = re.findall(r'(?i)\b(mp3|m4b|flac|aac|ogg|opus|wav|alac|ape|epub|pdf|mobi|azw3|cbz|cbr)\b', name)
-        if toks:
-            uniq = list(dict.fromkeys(t.upper() for t in toks))
-            return "/".join(uniq)
-        return ""
-
-    out = []
-    for item in raw.get("data", []):
-        out.append({
-            "id": str(item.get("id") or item.get("tid") or ""),
-            "title": item.get("title") or item.get("name"),
-            "author_info": flatten(item.get("author_info")),
-            "narrator_info": flatten(item.get("narrator_info")),
-            "format": detect_format(item),
-            "size": item.get("size"),
-            "seeders": item.get("seeders"),
-            "leechers": item.get("leechers"),
-            "catname": item.get("catname"),
-            "added": item.get("added"),
-            "dl": item.get("dl"),
-        })
-
-    return JSONResponse({
-        "results": out,
-        "total": raw.get("total"),
-        "total_found": raw.get("total_found"),
-    })
+    result = await mam.search(
+        settings.MAM_COOKIE,
+        text=text_q,
+        sort_type=tor.get("sortType") or "default",
+        perpage=payload.get("perpage", 25),
+    )
+    return JSONResponse(result)
 
 # ---------------------------- qB API helpers ----------------------------
 async def qb_login(client: httpx.AsyncClient):
@@ -355,6 +297,34 @@ class AddBody(BaseModel):
     author: str | None = None
     narrator: str | None = None
 
+def record_history(mam_id: str, title: str, author: str, narrator: str, dl: str, qb_hash: str | None):
+    with engine.begin() as cx:
+        cx.execute(text("""
+            INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
+            VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
+        """), {
+            "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
+            "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
+            "added_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+async def qb_find_hash(client: httpx.AsyncClient, mam_id: str, title: str) -> str | None:
+    if not mam_id:
+        return None
+    info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
+                            params={"tag": f"mamid={mam_id}", "filter": "all"})
+    try:
+        arr = info.json()
+    except Exception:
+        return None
+    if not isinstance(arr, list) or not arr:
+        return None
+    tlow = title.lower()
+    for tor in arr:
+        if tlow and (tor.get("name") or "").lower().startswith(tlow[:20]):
+            return tor.get("hash")
+    return arr[0].get("hash")
+
 @app.post("/add")
 async def add_to_qb(body: AddBody):
     mam_id = ("" if body.id is None else str(body.id)).strip()
@@ -363,112 +333,39 @@ async def add_to_qb(body: AddBody):
     narrator = (body.narrator or "").strip()
     dl = (body.dl or "").strip()
 
-    if not mam_id and not dl:
-        raise HTTPException(status_code=400, detail="Missing MAM id and dl; need at least one")
+    if not mam_id:
+        # Both documented download forms need ?tid=<id>.
+        raise HTTPException(status_code=400, detail="Missing MAM torrent id")
+    if not mam_id.isdigit():
+        raise HTTPException(status_code=400, detail="MAM torrent id must be numeric")
 
     # tags: existing + mamid=<id>
     tag_list = [t.strip() for t in (settings.QB_TAGS or "").split(",") if t.strip()]
-    if mam_id:
-        tag_list.append(f"mamid={mam_id}")
-    tag_str = ",".join(tag_list) if tag_list else ""
-
-    direct_url = f"{settings.MAM_BASE}/tor/download.php/{dl}" if dl else None
-    id_candidates = []
-    if mam_id:
-        id_candidates = [
-            f"{settings.MAM_BASE}/tor/download.php?id={mam_id}",
-            f"{settings.MAM_BASE}/tor/download.php?tid={mam_id}",
-        ]
-
-    qb_hash = None
+    tag_list.append(f"mamid={mam_id}")
+    form = {"category": settings.QB_CATEGORY, "tags": ",".join(tag_list)}
+    if settings.QB_SAVEPATH:
+        form["savepath"] = settings.QB_SAVEPATH
 
     async with httpx.AsyncClient(timeout=60) as client:
         await qb_login(client)
 
-        # Try URL add first if we have a cookie-less direct link
-        if direct_url:
-            form = {"urls": direct_url, "category": settings.QB_CATEGORY}
-            if tag_str: form["tags"] = tag_str
-            if settings.QB_SAVEPATH: form["savepath"] = settings.QB_SAVEPATH
+        if dl:
+            # Documented cookie-less form; qB fetches it. No fallback if qB rejects it.
+            form["urls"] = mam.build_dl_url(dl, mam_id)
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
-            if r.status_code == 200:
-                # ask qB for hash (by tag)
-                if mam_id:
-                    info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
-                                            params={"tag": f"mamid={mam_id}", "filter": "all"})
-                    try:
-                        arr = info.json()
-                        if isinstance(arr, list) and arr:
-                            tlow = title.lower()
-                            pick = None
-                            for tor in arr:
-                                nm = (tor.get("name") or "").lower()
-                                if tlow and nm.startswith(tlow[:20]):
-                                    pick = tor; break
-                            qb_hash = (pick or arr[0]).get("hash")
-                    except Exception:
-                        pass
+            if r.status_code != 200 or "fail" in (r.text or "").lower():
+                raise HTTPException(status_code=502, detail=f"qB add (url) failed: {r.status_code} {mam.redact(r.text[:160])}")
+        else:
+            # No dl hash: one cookie-authenticated GET download.php?tid=<id>, then upload.
+            torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
+            files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
+            r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
+            if r.status_code != 200 or "fail" in (r.text or "").lower():
+                raise HTTPException(status_code=502, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 
-                with engine.begin() as cx:
-                    cx.execute(text("""
-                        INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-                        VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
-                    """), {
-                        "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
-                        "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
-                        "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                    })
-                return {"ok": True}
-            # else: fall through to cookie fetch
+        qb_hash = await qb_find_hash(client, mam_id, title)
 
-        # Cookie-authenticated fetch of .torrent, then upload
-        mam_headers = {
-            "Cookie": settings.MAM_COOKIE,
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/x-bittorrent, */*",
-            "Referer": "https://www.myanonamouse.net/",
-            "Origin": "https://www.myanonamouse.net",
-        }
-        torrent_bytes = None
-        for url in id_candidates:
-            resp = await client.get(url, headers=mam_headers)
-            if resp.status_code == 200 and resp.content:
-                torrent_bytes = resp.content
-                break
-
-        if not torrent_bytes:
-            raise HTTPException(status_code=502, detail="Could not fetch .torrent from MAM (no dl hash and cookie fetch failed).")
-
-        files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
-        data = {"category": settings.QB_CATEGORY}
-        if tag_str: data["tags"] = tag_str
-        if settings.QB_SAVEPATH: data["savepath"] = settings.QB_SAVEPATH
-
-        r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=data, files=files)
-        if r.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
-
-        # After upload, try to fetch hash
-        if mam_id:
-            info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
-                                    params={"tag": f"mamid={mam_id}", "filter": "all"})
-            try:
-                arr = info.json()
-                if isinstance(arr, list) and arr:
-                    qb_hash = arr[0].get("hash")
-            except Exception:
-                pass
-
-        with engine.begin() as cx:
-            cx.execute(text("""
-                INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-                VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
-            """), {
-                "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
-                "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
-                "added_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-            })
-
+    record_history(mam_id, title, author, narrator, dl, qb_hash)
     return {"ok": True}
 
 # ---------------------------- History ----------------------------

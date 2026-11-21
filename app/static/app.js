@@ -56,7 +56,14 @@ async function runSearch() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tor: { text, sortType }, perpage })
     });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try {
+        const j = await resp.json();
+        if (j?.detail) msg = j.detail;
+      } catch {}
+      throw new Error(msg);
+    }
     const data = await resp.json();
 
     const rows = data.results || [];
@@ -131,7 +138,7 @@ async function runSearch() {
     await loadHistory();
   } catch (e) {
     console.error(e);
-    statusEl.textContent = 'Search failed.';
+    statusEl.textContent = `Search failed: ${e.message}`;
   }
 }
 
