@@ -109,7 +109,9 @@ async function runSearch() {
         } catch (e) {
           console.error(e);
           addBtn.textContent = 'Error';
+          addBtn.title = e.message;
           addBtn.disabled = false;
+          statusEl.textContent = `Add failed: ${e.message}`;
         }
       });
 
