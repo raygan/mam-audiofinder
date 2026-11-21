@@ -28,4 +28,5 @@ Last updated: Phase 0a (v0.7.0).
 - **The auth-failure shape isn't confirmed.** 3xx/401/403 are treated as auth errors, and any unrecognised `error` body fails closed.
 - **Upstream errors return HTTP 424**, not 502, because Cloudflare replaces origin 502 bodies with its own page and the user never sees the reason (`main.UPSTREAM_FAILED`).
 - **The `dl` hash character set isn't confirmed.** The guard allows `[A-Za-z0-9_-]{8,512}`. If real hashes use other characters, Add fails closed with "dl hash has unexpected characters"; adjust once a captured fixture shows the shape.
+- **TODO: some search results arrive without a `dl` hash.** On 2026-11-21 an Add logged `qB add (upload) failed`, which only happens when the result had no `dl`, so the app made the one cookie `GET download.php?tid=` fallback instead of handing qB the link. That's allowed, but every result should normally have `dl` when `dlLink=1` is sent. Raygan will capture that search with `MAM_CAPTURE_DIR` later so we can see why.
 - `tests/fixtures/synthetic_search.json` is hand-written from the documented field list, not a real response.
