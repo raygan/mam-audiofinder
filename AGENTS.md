@@ -9,7 +9,14 @@
 
 ## Project Structure & Modules
 
-- Backend FastAPI app lives in `app/main.py`.
+- Backend FastAPI app lives in `app/`, split into small flat modules (no packages):
+  - `main.py`: app setup, routes, and error-to-HTTP mapping only.
+  - `config.py`: `Settings` (`/data/config.json` over env vars), setup helpers.
+  - `db.py`: SQLite engine, versioned migrations (`MIGRATIONS`), and history queries.
+  - `mam.py`: **the only module that talks to MyAnonamouse** (allowlist guard, see the compliance section above).
+  - `qb.py`: the qBittorrent WebUI API, including `add_from_mam()`, which routes and the future scheduler share. It raises `QbError`/`QbDuplicate`, never HTTP errors.
+  - `importer.py`: local file import (no network).
+  - Phase 2 adds `wishlist.py` and `scheduler.py`.
 - HTML templates are in `app/templates/` (`index.html`, `setup.html`).
 - Static assets (JS, icons, screenshots) are in `app/static/`.
 - Container and environment setup: `Dockerfile`, `docker-compose.yml`, `env.example`.
@@ -24,13 +31,14 @@
   - `docker compose up -d` – build and run using `.env`.
   - `docker compose build` – rebuild image after code changes.
 - Basic syntax check:
-  - `python -m py_compile app/main.py`
+  - `python -m py_compile app/*.py`
 
 ## Coding Style & Naming
 
 - Python: 4‑space indentation, no tabs.
 - Use `snake_case` for functions/variables, `CamelCase` for classes.
-- Keep modules small and flat; prefer helpers in `main.py` over new packages unless needed.
+- Keep modules small and flat. The module split above is a deliberate exception to the old "put helpers in `main.py`" rule (ROADMAP Phase 0b). Put new logic in the module it belongs to; don't create packages.
+- Schema changes: append a new `(version, [steps])` entry to `db.MIGRATIONS`. Never edit or reorder an existing one, and never use the old `try: ALTER TABLE ... except: pass` pattern.
 - Frontend JS: modern ES syntax, avoid frameworks; keep logic in `app/static/app.js` or small new files.
 
 ## Testing Guidelines

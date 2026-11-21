@@ -43,6 +43,15 @@ The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes 
 4. Open the files in `<DATA_DIR>/fixtures/` and check them before sharing. They contain titles and your own `my_snatched`/`bookmarked` flags, but no cookie or real `dl` hash.
 5. Copy them into `tests/fixtures/` in the repo, then remove `MAM_CAPTURE_DIR`.
 
+## Phase 0b (v0.7.0): groundwork
+
+- `main.py` is split into `config.py`, `db.py`, `qb.py` and `importer.py`; `main.py` keeps the routes (see AGENTS.md). Behaviour is unchanged, and the Import tests were written before the move to prove it.
+- `qb.add_from_mam(mam_id, dl, title)` is the single path for adding a MAM torrent to qB.
+- `/import` is now async. qB calls are async, and file copying runs in a threadpool so it doesn't block the server. It no longer fetches the unused torrent properties.
+- Versioned migrations: a `schema_version` table and `db.MIGRATIONS`. Migration 1 brings any older DB up to the v0.6 columns without touching rows; migration 2 indexes `history.mam_id`. They run on startup. **Back up `history.db` before the first start of 0.7.**
+- Housekeeping: all timestamps are timezone-aware UTC (`db.utc_now()`), the double `r.json()` in `/qb/torrents` is gone, and history inserts go through one helper.
+- Still open: see "Known gaps" in `docs/MAM_COMPLIANCE.md` (missing `dl` hash TODO, auth-failure fixture, `dl` character set).
+
 ## How to Run for Testing
 
 - Tests (no network): `python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`, then `.venv/bin/python -m pytest -q`.
