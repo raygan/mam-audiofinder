@@ -1,4 +1,4 @@
-import os, json, re, logging
+import os, json, re, logging, hashlib
 from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request, HTTPException
@@ -195,6 +195,15 @@ app = FastAPI(title="MAM Audiobook Finder", version=mam.APP_VERSION, lifespan=li
 
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
+# Appended to static URLs so proxies (e.g. Cloudflare) don't serve stale JS
+# after a rebuild: a short hash of the JS files, so it changes whenever they do.
+def _asset_version() -> str:
+    h = hashlib.sha256()
+    for f in sorted((APP_DIR / "static").glob("*.js")):
+        h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+templates.env.globals["asset_version"] = _asset_version()
 
 mam.install_log_redaction()
 
@@ -303,6 +312,10 @@ def qb_add_ok(r: httpx.Response) -> bool:
         return added > 0 or int(j.get("failure_count") or 0) == 0
     return True
 
+def qb_duplicate() -> HTTPException:
+    # Newer qB answers 409 Conflict when the torrent is already in the session.
+    return HTTPException(status_code=409, detail="Already in qBittorrent")
+
 def qb_error(detail: str) -> HTTPException:
     detail = mam.redact(detail)
     log.warning("qB request failed: %s", detail)
@@ -386,6 +399,8 @@ async def add_to_qb(body: AddBody):
             # Documented cookie-less form; qB fetches it. No fallback if qB rejects it.
             form["urls"] = mam.build_dl_url(dl, mam_id)
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
+            if r.status_code == 409:
+                raise qb_duplicate()
             if not qb_add_ok(r):
                 raise qb_error(f"qB add (url) failed: {r.status_code} {r.text[:160]}")
         else:
@@ -393,6 +408,8 @@ async def add_to_qb(body: AddBody):
             torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
             files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
+            if r.status_code == 409:
+                raise qb_duplicate()
             if not qb_add_ok(r):
                 raise qb_error(f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 

@@ -96,6 +96,11 @@ async function runSearch() {
               narrator: it.narrator_info || ''
             })
           });
+          if (resp.status === 409) {
+            addBtn.textContent = 'Already in qB';
+            addBtn.title = 'This torrent is already in qBittorrent';
+            return;
+          }
           if (!resp.ok) {
             let msg = `HTTP ${resp.status}`;
             try {

@@ -176,3 +176,24 @@ def test_add_works_when_qb_login_returns_204(net, client):
     net.qb_handler = qb
     r = client.post("/add", json={"id": "123", "dl": DL})
     assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("dl", [DL, ""])
+def test_add_duplicate_returns_409_and_no_history(net, client, dl):
+    net.mam_handler = lambda r: httpx.Response(200, content=b"d4:infod4:name1:xee",
+                                               headers={"content-type": "application/x-bittorrent"})
+    def qb(request):
+        if request.url.path == "/api/v2/torrents/add":
+            return httpx.Response(409, text="Conflict")
+        return net.default_qb(request)
+    net.qb_handler = qb
+    r = client.post("/add", json={"id": "555", "title": "Dup", "dl": dl})
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Already in qBittorrent"
+    with main.engine.begin() as cx:
+        assert cx.execute(text("SELECT COUNT(*) FROM history WHERE mam_id='555'")).scalar() == 0
+
+
+def test_static_assets_are_versioned(client):
+    html = client.get("/setup").text
+    assert f"/static/setup.js?v={main._asset_version()}" in html
