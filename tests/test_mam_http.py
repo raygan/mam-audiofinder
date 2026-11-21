@@ -24,7 +24,7 @@ def test_search_sends_honest_headers_and_only_mam_id(net):
     assert "origin" not in req.headers
     assert "referer" not in req.headers
     assert req.headers["cookie"] == COOKIE
-    assert str(req.url) == f"{mam.MAM_BASE}/tor/js/loadSearchJSONbasic.php?dlLink=1"
+    assert str(req.url) == f"{mam.MAM_BASE}/tor/js/loadSearchJSONbasic.php"  # no query string
 
 
 def test_fetch_torrent_sends_honest_headers(net):
@@ -173,7 +173,8 @@ def test_search_request_body_is_built_not_passed_through(net):
     body = json.loads(seen["body"])
     assert body["perpage"] == 100  # clamped
     assert body["tor"]["main_cat"] == ["13"]
-    assert set(body) == {"tor", "perpage"}
+    assert set(body) == {"tor", "perpage", "dlLink"}
+    assert body["dlLink"] == "1"  # in the body, not the URL
 
 
 # ---------------- redaction ----------------
@@ -251,3 +252,39 @@ def test_redaction_keeps_log_args_structure():
     mam.RedactingFilter().filter(rec)
     assert isinstance(rec.args, tuple) and len(rec.args) == 5
     assert FAKE_TOKEN not in rec.getMessage()
+
+
+
+# ---------------- real capture (tests/fixtures/search_audiobook.json) ----------------
+def test_real_audiobook_capture_normalizes(net):
+    net.mam_handler = lambda r: httpx.Response(200, json=load_fixture("search_audiobook.json")["json"])
+    out = run(mam.search(COOKIE, text="saving supervillains"))
+    first = out["results"][0]
+    assert first["id"] == "882573"
+    assert first["title"] == "Saving Supervillains"
+    assert first["author_info"] == "Bruce Sentar"
+    assert first["narrator_info"] == "Lewis Alexander, Rozelyn Rader"
+    assert first["format"] == "M4B"
+    assert first["seeders"] == 149
+    assert first["dl"] is None  # this capture predates dlLink-in-body
+    assert out["results"][2]["format"] == "MP3"
+    assert out["total"] == 6 and out["total_found"] == 6  # real field is "found"
+
+
+def test_mam_html_snippets_never_reach_the_client(net):
+    # The real response has "cat": "<div class=...>"; it must not be passed on.
+    net.mam_handler = lambda r: httpx.Response(200, json=load_fixture("search_audiobook.json")["json"])
+    out = run(mam.search(COOKIE, text="x"))
+    import json
+    assert "<" not in json.dumps(out)
+    assert all("cat" not in r for r in out["results"])
+
+
+def test_capture_blanks_ownership(net, tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("MAM_CAPTURE_DIR", str(tmp_path))
+    body = {"data": [{"id": 1, "title": "t", "ownership": "[94940,\"someone\"]"}], "total": 1, "found": 1}
+    net.mam_handler = lambda r: httpx.Response(200, json=body)
+    run(mam.search(COOKIE, text="x"))
+    (f,) = list(tmp_path.iterdir())
+    assert "someone" not in f.read_text() and "94940" not in f.read_text()

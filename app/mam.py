@@ -292,7 +292,7 @@ def install_log_redaction():
 # When MAM_CAPTURE_DIR is set, each response to a user-initiated request is
 # written there sanitized: dl hashes are replaced by same-shape dummies, owner
 # names are blanked, Set-Cookie is dropped, and HTML bodies are not stored.
-_SANITIZE_KEYS_BLANK = {"owner_name"}
+_SANITIZE_KEYS_BLANK = {"owner_name", "ownership"}  # ownership = [uploader_id, "name"]
 
 
 def _shape(s: str) -> str:
@@ -474,8 +474,10 @@ async def search(
         "startNumber": str(int(start_number)),
         "main_cat": [str(c) for c in (main_cat or ["13"])],
     }
-    body = {"tor": tor, "perpage": clamp_perpage(perpage)}
-    url = f"{MAM_BASE}{SEARCH_PATH}?{urlencode({'dlLink': '1'})}"
+    # dlLink goes in the JSON body with the other top-level parameters: sent
+    # as a query param (as before 0.8), MAM returned no dl field at all.
+    body = {"tor": tor, "perpage": clamp_perpage(perpage), "dlLink": "1"}
+    url = f"{MAM_BASE}{SEARCH_PATH}"
 
     r = await _send("POST", url, cookie, "application/json", json_body=body)
     _capture("search", r)
@@ -502,7 +504,8 @@ async def search(
     return {
         "results": [normalize_result(it) for it in data if isinstance(it, dict)],
         "total": _to_int(raw.get("total")),
-        "total_found": _to_int(raw.get("total_found")),
+        # Docs say total_found; the real response (2026-11 capture) says found.
+        "total_found": _to_int(raw.get("total_found", raw.get("found"))),
     }
 
 
