@@ -181,6 +181,10 @@ class SetupPayload(BaseModel):
     app_prefix: str | None = None
 
 # ---------------------------- App ----------------------------
+# Upstream (MAM/qB) failures. Not 502/504, which reverse proxies such as
+# Cloudflare replace with their own error page, hiding the reason.
+UPSTREAM_FAILED = 424
+
 @asynccontextmanager
 async def lifespan(_app):
     # uvicorn attaches its log handlers after import; cover those too.
@@ -197,7 +201,8 @@ mam.install_log_redaction()
 @app.exception_handler(mam.MamError)
 async def mam_error_handler(request: Request, exc: mam.MamError):
     # Fail closed: surface the reason, never retry, never fall back.
-    status = 400 if isinstance(exc, mam.MamEndpointNotAllowed) else 502
+    # 424, not 502: Cloudflare replaces origin 502 bodies with its own page.
+    status = 400 if isinstance(exc, mam.MamEndpointNotAllowed) else UPSTREAM_FAILED
     detail = mam.redact(str(exc))
     if isinstance(exc, mam.MamAuthError):
         detail += ". Update the mam_id cookie in Setup."
@@ -287,7 +292,7 @@ async def qb_login(client: httpx.AsyncClient):
                           data={"username": settings.QB_USER, "password": settings.QB_PASS},
                           timeout=20)
     if r.status_code != 200 or "Ok" not in (r.text or ""):
-        raise HTTPException(status_code=502, detail=f"qB login failed: {r.status_code} {r.text[:120]}")
+        raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB login failed: {r.status_code} {r.text[:120]}")
 
 # ---------------------------- Add-to-qB ----------------------------
 class AddBody(BaseModel):
@@ -354,14 +359,14 @@ async def add_to_qb(body: AddBody):
             form["urls"] = mam.build_dl_url(dl, mam_id)
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
             if r.status_code != 200 or "fail" in (r.text or "").lower():
-                raise HTTPException(status_code=502, detail=f"qB add (url) failed: {r.status_code} {mam.redact(r.text[:160])}")
+                raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB add (url) failed: {r.status_code} {mam.redact(r.text[:160])}")
         else:
             # No dl hash: one cookie-authenticated GET download.php?tid=<id>, then upload.
             torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
             files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
             if r.status_code != 200 or "fail" in (r.text or "").lower():
-                raise HTTPException(status_code=502, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
+                raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 
         qb_hash = await qb_find_hash(client, mam_id, title)
 
@@ -479,12 +484,12 @@ def do_import(body: ImportBody):
         lr = c.post(f"{settings.QB_URL}/api/v2/auth/login",
                     data={"username": settings.QB_USER, "password": settings.QB_PASS})
         if lr.status_code != 200 or "Ok" not in lr.text:
-            raise HTTPException(status_code=502, detail="qB login failed")
+            raise HTTPException(status_code=UPSTREAM_FAILED, detail="qB login failed")
 
         # files (used to detect single-file)
         fr = c.get(f"{settings.QB_URL}/api/v2/torrents/files", params={"hash": h})
         if fr.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"qB files failed: {fr.status_code}")
+            raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB files failed: {fr.status_code}")
         files = fr.json()
         if not files:
             raise HTTPException(status_code=404, detail="No files found for torrent")

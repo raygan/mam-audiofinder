@@ -81,6 +81,31 @@ def test_search_fails_closed_with_one_request(net, response, err):
     assert len(net.mam_requests) == 1  # no retries, no fallback endpoints
 
 
+def test_nothing_returned_means_empty_results(net):
+    net.mam_handler = lambda r: httpx.Response(200, json=load_fixture("search_empty.json")["json"])
+    out = run(mam.search(COOKIE, text="zzqqxxnotabook"))
+    assert out == {"results": [], "total": 0, "total_found": 0}
+    assert len(net.mam_requests) == 1
+
+
+@pytest.mark.parametrize("body", [
+    {"error": "Nothing returned, out of 0", "extra": 1},
+    {"error": "Nothing returned, out of many"},
+    {"error": "Nothing returned, out of 0. Not logged in"},
+    {"error": "nothing returned, out of 0"},
+])
+def test_only_exact_empty_shape_is_treated_as_empty(net, body):
+    net.mam_handler = lambda r: httpx.Response(200, json=body)
+    with pytest.raises(mam.MamUnexpectedResponse):
+        run(mam.search(COOKIE, text="x"))
+
+
+def test_empty_result_with_error_status_still_fails(net):
+    net.mam_handler = lambda r: httpx.Response(403, json={"error": "Nothing returned, out of 0"})
+    with pytest.raises(mam.MamAuthError):
+        run(mam.search(COOKIE, text="x"))
+
+
 def test_redirect_is_not_followed(net):
     net.mam_handler = lambda r: httpx.Response(302, headers={"location": "https://evil.example/steal"})
     with pytest.raises(mam.MamAuthError):

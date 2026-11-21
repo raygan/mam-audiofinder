@@ -1,0 +1,5 @@
+{
+  "_source": "Observed by Raygan on 2026-11-21: MAM's reply to a search with no matches, as logged by the app (status 200, JSON body). Body text copied from the redacted log line; not a full capture.",
+  "status": 200,
+  "json": {"error": "Nothing returned, out of 0"}
+}

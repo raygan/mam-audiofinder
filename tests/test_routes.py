@@ -49,10 +49,17 @@ def test_search_ignores_client_supplied_extra_keys(net, client):
     assert "thumbnail" not in seen["body"]
 
 
+def test_empty_search_returns_no_results(net, client):
+    net.mam_handler = lambda r: httpx.Response(200, json={"error": "Nothing returned, out of 0"})
+    r = client.post("/search", json={"tor": {"text": "zzqqxxnotabook"}})
+    assert r.status_code == 200
+    assert r.json()["results"] == []
+
+
 def test_search_auth_failure_surfaces_reason(net, client):
     net.mam_handler = lambda r: httpx.Response(403)
     r = client.post("/search", json={"tor": {"text": "x"}})
-    assert r.status_code == 502
+    assert r.status_code == 424
     assert r.json()["error"] == "MamAuthError"
     assert "cookie" in r.json()["detail"].lower()
     assert FAKE_TOKEN not in r.text
@@ -93,7 +100,7 @@ def test_add_qb_url_failure_does_not_fall_back_to_cookie_fetch(net, client):
         return net.default_qb(request)
     net.qb_handler = qb
     r = client.post("/add", json={"id": "123", "dl": DL})
-    assert r.status_code == 502
+    assert r.status_code == 424
     assert net.mam_requests == []
     assert DL not in r.text
 
@@ -101,7 +108,7 @@ def test_add_qb_url_failure_does_not_fall_back_to_cookie_fetch(net, client):
 def test_add_fetch_auth_failure_fails_closed(net, client):
     net.mam_handler = lambda r: httpx.Response(302, headers={"location": "/login.php"})
     r = client.post("/add", json={"id": "789"})
-    assert r.status_code == 502
+    assert r.status_code == 424
     assert r.json()["error"] == "MamAuthError"
     assert len(net.mam_requests) == 1
     assert qb_adds(net) == []

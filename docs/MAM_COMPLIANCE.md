@@ -24,6 +24,8 @@ Last updated: Phase 0a (v0.7.0).
 
 ## Known gaps / pending fixtures
 
-- **The empty-result and auth-failure shapes aren't confirmed.** A search response without a `data` key currently raises `MamUnexpectedResponse` and shows MAM's `error` text. If MAM reports "no results" that way, an empty search will show an error until a real fixture lets us tell "no results" apart from a failure.
+- **Empty results** were observed on 2026-11-21: MAM returns `200` with `{"error": "Nothing returned, out of N"}`. Only that exact shape (no other keys) maps to empty results (`mam._EMPTY_RESULT`); any other `error` still raises `MamUnexpectedResponse`. Tests: `test_nothing_returned_means_empty_results`, `test_only_exact_empty_shape_is_treated_as_empty`, `test_empty_search_returns_no_results`. Fixture: `tests/fixtures/search_empty.json` (body taken from the log, not a full capture).
+- **The auth-failure shape isn't confirmed.** 3xx/401/403 are treated as auth errors, and any unrecognised `error` body fails closed.
+- **Upstream errors return HTTP 424**, not 502, because Cloudflare replaces origin 502 bodies with its own page and the user never sees the reason (`main.UPSTREAM_FAILED`).
 - **The `dl` hash character set isn't confirmed.** The guard allows `[A-Za-z0-9_-]{8,512}`. If real hashes use other characters, Add fails closed with "dl hash has unexpected characters"; adjust once a captured fixture shows the shape.
 - `tests/fixtures/synthetic_search.json` is hand-written from the documented field list, not a real response.

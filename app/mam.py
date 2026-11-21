@@ -72,6 +72,7 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # dl hashes are opaque; allow only URL-safe characters so they can't inject
 # a path segment or query string. Tighten/loosen once a sanitized fixture
 # confirms the real character set.
+_EMPTY_RESULT = re.compile(r"^Nothing returned, out of (\d+)$")
 _DL_HASH = re.compile(r"^[A-Za-z0-9_-]{8,512}$")
 
 
@@ -487,6 +488,11 @@ async def search(
         raise MamUnexpectedResponse("MAM search returned an unexpected JSON shape")
     if "data" not in raw:
         err = raw.get("error")
+        # Observed from MAM (200 OK) when a search matches nothing. Only this
+        # exact shape means "empty"; any other error still fails closed.
+        m = _EMPTY_RESULT.match(err) if isinstance(err, str) else None
+        if m and set(raw) == {"error"}:
+            return {"results": [], "total": 0, "total_found": int(m.group(1))}
         detail = f": {redact(err)[:120]}" if isinstance(err, str) else ""
         raise MamUnexpectedResponse(f"MAM search returned no data{detail}")
     data = raw.get("data")
