@@ -287,6 +287,22 @@ async def search(payload: dict):
     return JSONResponse(result)
 
 # ---------------------------- qB API helpers ----------------------------
+def qb_add_ok(r: httpx.Response) -> bool:
+    """qB < 5.x replies 'Ok.' / 'Fails.'; newer versions reply with JSON counts."""
+    if r.status_code != 200:
+        return False
+    body = (r.text or "").strip()
+    if body == "Fails.":
+        return False
+    try:
+        j = r.json()
+    except ValueError:
+        return True
+    if isinstance(j, dict) and "failure_count" in j:
+        added = int(j.get("success_count") or 0) + int(j.get("pending_count") or 0)
+        return added > 0 or int(j.get("failure_count") or 0) == 0
+    return True
+
 def qb_error(detail: str) -> HTTPException:
     detail = mam.redact(detail)
     log.warning("qB request failed: %s", detail)
@@ -363,14 +379,14 @@ async def add_to_qb(body: AddBody):
             # Documented cookie-less form; qB fetches it. No fallback if qB rejects it.
             form["urls"] = mam.build_dl_url(dl, mam_id)
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
-            if r.status_code != 200 or "fail" in (r.text or "").lower():
+            if not qb_add_ok(r):
                 raise qb_error(f"qB add (url) failed: {r.status_code} {r.text[:160]}")
         else:
             # No dl hash: one cookie-authenticated GET download.php?tid=<id>, then upload.
             torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
             files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
             r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
-            if r.status_code != 200 or "fail" in (r.text or "").lower():
+            if not qb_add_ok(r):
                 raise qb_error(f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
 
         qb_hash = await qb_find_hash(client, mam_id, title)

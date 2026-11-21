@@ -131,3 +131,27 @@ def test_settings_ignore_custom_mam_base(monkeypatch):
 def test_home_and_setup_pages_render(client):
     assert client.get("/").status_code == 200
     assert client.get("/setup").status_code == 200
+
+
+import pytest
+
+@pytest.mark.parametrize("reply,ok", [
+    (httpx.Response(200, text="Ok."), True),
+    (httpx.Response(200, text="Fails."), False),
+    (httpx.Response(200, json={"success_count": 1, "failure_count": 0, "pending_count": 0}), True),
+    (httpx.Response(200, json={"success_count": 0, "failure_count": 0, "pending_count": 1}), True),
+    (httpx.Response(200, json={"success_count": 0, "failure_count": 1, "pending_count": 0}), False),
+    (httpx.Response(415, text="Torrent file is not valid"), False),
+])
+def test_qb_add_reply_parsing(reply, ok):
+    assert main.qb_add_ok(reply) is ok
+
+
+def test_add_succeeds_with_newer_qb_json_reply(net, client):
+    def qb(request):
+        if request.url.path == "/api/v2/torrents/add":
+            return httpx.Response(200, json={"success_count": 0, "failure_count": 0, "pending_count": 1})
+        return net.default_qb(request)
+    net.qb_handler = qb
+    r = client.post("/add", json={"id": "123", "dl": DL})
+    assert r.status_code == 200, r.text
