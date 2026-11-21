@@ -84,8 +84,18 @@ def net(monkeypatch):
                 kw["transport"] = t
             super().__init__(*a, **kw)
 
-    # main.py talks to qB with httpx.AsyncClient; route that too.
-    monkeypatch.setattr(main.httpx, "AsyncClient", RoutedAsyncClient)
+    real_sync = httpx.Client
+
+    class RoutedClient(real_sync):
+        def __init__(self, *a, **kw):
+            if kw.get("transport") is None:
+                kw["transport"] = t
+            super().__init__(*a, **kw)
+
+    # The app talks to qB with httpx clients; route those too. (TestClient
+    # passes its own transport, so it is unaffected.)
+    monkeypatch.setattr(httpx, "AsyncClient", RoutedAsyncClient)
+    monkeypatch.setattr(httpx, "Client", RoutedClient)
     return n
 
 
