@@ -3,7 +3,9 @@ import json
 
 import httpx
 
+import db
 import main
+import qb
 import mam
 from conftest import FAKE_TOKEN, load_fixture
 from sqlalchemy import text
@@ -116,7 +118,7 @@ def test_add_fetch_auth_failure_fails_closed(net, client):
 
 def test_add_writes_history(net, client):
     client.post("/add", json={"id": "321", "title": "Hist", "dl": DL, "author": "A"})
-    with main.engine.begin() as cx:
+    with db.engine.begin() as cx:
         row = cx.execute(text("SELECT mam_id, title, qb_hash FROM history WHERE mam_id='321'")).mappings().one()
     assert row["title"] == "Hist" and row["qb_hash"] == "abc123"
 
@@ -144,7 +146,7 @@ import pytest
     (httpx.Response(415, text="Torrent file is not valid"), False),
 ])
 def test_qb_add_reply_parsing(reply, ok):
-    assert main.qb_add_ok(reply) is ok
+    assert qb.add_ok(reply) is ok
 
 
 def test_add_succeeds_with_newer_qb_json_reply(net, client):
@@ -165,7 +167,7 @@ def test_add_succeeds_with_newer_qb_json_reply(net, client):
     (httpx.Response(401), False),
 ])
 def test_qb_login_reply_parsing(reply, ok):
-    assert main.qb_login_ok(reply) is ok
+    assert qb.login_ok(reply) is ok
 
 
 def test_add_works_when_qb_login_returns_204(net, client):
@@ -190,7 +192,7 @@ def test_add_duplicate_returns_409_and_no_history(net, client, dl):
     r = client.post("/add", json={"id": "555", "title": "Dup", "dl": dl})
     assert r.status_code == 409
     assert r.json()["detail"] == "Already in qBittorrent"
-    with main.engine.begin() as cx:
+    with db.engine.begin() as cx:
         assert cx.execute(text("SELECT COUNT(*) FROM history WHERE mam_id='555'")).scalar() == 0
 
 

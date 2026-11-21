@@ -1,162 +1,26 @@
-import os, json, re, logging, hashlib
+"""Routes. Logic lives in flat modules: config, db, mam (the only MAM
+traffic), qb, importer. See AGENTS.md."""
+import hashlib, logging
 from contextlib import asynccontextmanager
-import httpx
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import List, Tuple
 
-import mam
+import db, importer, mam, qb
+from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask
 
 log = logging.getLogger("mam-audiofinder")
 APP_DIR = Path(__file__).resolve().parent
 
-# ---------------------------- Config ----------------------------
-CONFIG_PATH = os.getenv("APP_CONFIG_PATH", "/data/config.json")
+apply_umask()
+db.migrate()
 
-def load_json_config() -> dict:
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
-
-def is_setup_disabled() -> bool:
-    val = os.getenv("DISABLE_SETUP", "")
-    return str(val).strip().lower() in ("1", "true", "yes", "on")
-
-def build_qb_path_map(raw_cfg, raw_env: str | None, dl_dir: str, qb_inner_prefix: str) -> List[Tuple[str, str]]:
-    pairs: List[Tuple[str, str]] = []
-
-    # 1) JSON config: list of {qb_prefix, app_prefix}
-    if isinstance(raw_cfg, list):
-        for item in raw_cfg:
-            if not isinstance(item, dict):
-                continue
-            qb = str(item.get("qb_prefix") or item.get("qb") or "").strip()
-            app = str(item.get("app_prefix") or item.get("path") or "").strip()
-            if not qb or not app:
-                continue
-            qb = qb.rstrip("/") or "/"
-            app = app.rstrip("/") or "/"
-            pairs.append((qb, app))
-
-    # 2) Env string: "qb_prefix=app_prefix;other_qb=other_app"
-    if not pairs and raw_env:
-        val = raw_env.strip()
-        if val:
-            for part in val.split(";"):
-                part = part.strip()
-                if not part or "=" not in part:
-                    continue
-                qb, app = part.split("=", 1)
-                qb = qb.strip().rstrip("/") or "/"
-                app = app.strip().rstrip("/") or "/"
-                if qb and app:
-                    pairs.append((qb, app))
-
-    # 3) Fallback: derive from QB_INNER_DL_PREFIX and DL_DIR
-    if not pairs and qb_inner_prefix and dl_dir:
-        qb = qb_inner_prefix.rstrip("/") or "/"
-        app = dl_dir.rstrip("/") or "/"
-        pairs.append((qb, app))
-
-    return pairs
-
-class Settings:
-    def __init__(self) -> None:
-        self.reload()
-
-    def reload(self) -> None:
-        cfg = load_json_config()
-
-        # The MAM base URL is fixed in mam.py; MAM_BASE is no longer configurable.
-        legacy_base = cfg.get("MAM_BASE") or os.getenv("MAM_BASE")
-        if legacy_base and legacy_base.rstrip("/") != mam.MAM_BASE:
-            log.warning("Ignoring MAM_BASE=%r; the app only talks to %s", legacy_base, mam.MAM_BASE)
-
-        raw_cookie = cfg.get("MAM_COOKIE")
-        if raw_cookie is None:
-            raw_cookie = os.getenv("MAM_COOKIE", "")
-        # Only the mam_id cookie is ever sent; anything else pasted is dropped.
-        self.MAM_COOKIE = mam.build_cookie(raw_cookie)
-        mam.register_secret(self.MAM_COOKIE.partition("=")[2])
-
-        self.QB_URL = (cfg.get("QB_URL") or os.getenv("QB_URL", "http://qbittorrent:8080")).rstrip("/")
-        self.QB_USER = cfg.get("QB_USER") or os.getenv("QB_USER", "admin")
-        self.QB_PASS = cfg.get("QB_PASS") or os.getenv("QB_PASS", "adminadmin")
-        self.QB_SAVEPATH = cfg.get("QB_SAVEPATH") or os.getenv("QB_SAVEPATH", "")
-        self.QB_TAGS = cfg.get("QB_TAGS") or os.getenv("QB_TAGS", "MAM,audiobook")
-
-        self.QB_CATEGORY = cfg.get("QB_CATEGORY") or os.getenv("QB_CATEGORY", "mam-audiofinder")
-        self.QB_POSTIMPORT_CATEGORY = cfg.get("QB_POSTIMPORT_CATEGORY") or os.getenv("QB_POSTIMPORT_CATEGORY", "")
-
-        self.DL_DIR = cfg.get("DL_DIR") or os.getenv("DL_DIR", "/media/torrents")
-        self.LIB_DIR = cfg.get("LIB_DIR") or os.getenv("LIB_DIR", "/media/audiobookshelf")
-        self.IMPORT_MODE = (cfg.get("IMPORT_MODE") or os.getenv("IMPORT_MODE", "link")).lower()
-
-        self.QB_INNER_DL_PREFIX = cfg.get("QB_INNER_DL_PREFIX") or os.getenv("QB_INNER_DL_PREFIX", "/downloads")
-
-        raw_pm_cfg = cfg.get("QB_PATH_MAP")
-        raw_pm_env = os.getenv("QB_PATH_MAP")
-        self.QB_PATH_MAP = build_qb_path_map(raw_pm_cfg, raw_pm_env, self.DL_DIR, self.QB_INNER_DL_PREFIX)
-
-        self.UMASK = cfg.get("UMASK") or os.getenv("UMASK")
-
-settings = Settings()
-
-# apply UMASK for created files/dirs
-_um = settings.UMASK
-if _um:
-    try:
-        os.umask(int(_um, 8))
-    except Exception:
-        pass
-
-# ---------------------------- DB ----------------------------
-# /data should be a volume/bind mount
-DB_PATH = os.getenv("APP_DB_PATH", "/data/history.db")
-engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
-with engine.begin() as cx:
-    cx.execute(text("""
-        CREATE TABLE IF NOT EXISTS history (
-          id INTEGER PRIMARY KEY,
-          mam_id   TEXT,
-          title    TEXT,
-          dl       TEXT,
-          added_at TEXT DEFAULT (datetime('now')),
-          qb_status TEXT,
-          qb_hash   TEXT
-        )
-    """))
-    # Add columns if missing (idempotent)
-    for ddl in (
-        "ALTER TABLE history ADD COLUMN author   TEXT",
-        "ALTER TABLE history ADD COLUMN narrator TEXT"
-    ):
-        try:
-            cx.execute(text(ddl))
-        except Exception:
-            pass
-        
-    try:
-        cx.execute(text("ALTER TABLE history ADD COLUMN imported_at TEXT"))
-    except Exception:
-        pass
-
-def needs_setup() -> bool:
-    # Consider setup incomplete if we don't have a MAM cookie,
-    # a library directory, or any qB path mapping.
-    return not settings.MAM_COOKIE or not settings.LIB_DIR or not settings.QB_PATH_MAP
-
+# ---------------------------- Setup ----------------------------
 def setup_context(request: Request) -> dict:
     qb_prefix = settings.QB_INNER_DL_PREFIX
     app_prefix = settings.DL_DIR
@@ -181,9 +45,7 @@ class SetupPayload(BaseModel):
     app_prefix: str | None = None
 
 # ---------------------------- App ----------------------------
-# Upstream (MAM/qB) failures. Not 502/504, which reverse proxies such as
-# Cloudflare replace with their own error page, hiding the reason.
-UPSTREAM_FAILED = 424
+UPSTREAM_FAILED = qb.UPSTREAM_FAILED
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -206,6 +68,14 @@ def _asset_version() -> str:
 templates.env.globals["asset_version"] = _asset_version()
 
 mam.install_log_redaction()
+
+@app.exception_handler(qb.QbError)
+async def qb_error_handler(request: Request, exc: qb.QbError):
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
+@app.exception_handler(importer.ImportFailed)
+async def import_error_handler(request: Request, exc: importer.ImportFailed):
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status)
 
 @app.exception_handler(mam.MamError)
 async def mam_error_handler(request: Request, exc: mam.MamError):
@@ -261,11 +131,7 @@ async def api_setup(body: SetupPayload):
 
     # Persist config
     try:
-        dirpath = os.path.dirname(CONFIG_PATH)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
+        save_json_config(cfg)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
 
@@ -295,46 +161,6 @@ async def search(payload: dict):
     )
     return JSONResponse(result)
 
-# ---------------------------- qB API helpers ----------------------------
-def qb_add_ok(r: httpx.Response) -> bool:
-    """qB < 5.x replies 'Ok.' / 'Fails.'; newer versions reply with JSON counts."""
-    if r.status_code != 200:
-        return False
-    body = (r.text or "").strip()
-    if body == "Fails.":
-        return False
-    try:
-        j = r.json()
-    except ValueError:
-        return True
-    if isinstance(j, dict) and "failure_count" in j:
-        added = int(j.get("success_count") or 0) + int(j.get("pending_count") or 0)
-        return added > 0 or int(j.get("failure_count") or 0) == 0
-    return True
-
-def qb_duplicate() -> HTTPException:
-    # Newer qB answers 409 Conflict when the torrent is already in the session.
-    return HTTPException(status_code=409, detail="Already in qBittorrent")
-
-def qb_error(detail: str) -> HTTPException:
-    detail = mam.redact(detail)
-    log.warning("qB request failed: %s", detail)
-    return HTTPException(status_code=UPSTREAM_FAILED, detail=detail)
-
-def qb_login_ok(r: httpx.Response) -> bool:
-    """Older qB replies 200 'Ok.'; newer qB can reply 204 No Content.
-    Wrong credentials are 200 'Fails.'; a banned IP is 403."""
-    if r.status_code == 204:
-        return True
-    return r.status_code == 200 and (r.text or "").strip() == "Ok."
-
-async def qb_login(client: httpx.AsyncClient):
-    r = await client.post(f"{settings.QB_URL}/api/v2/auth/login",
-                          data={"username": settings.QB_USER, "password": settings.QB_PASS},
-                          timeout=20)
-    if not qb_login_ok(r):
-        raise qb_error(f"qB login failed: {r.status_code} {r.text[:120]}")
-
 # ---------------------------- Add-to-qB ----------------------------
 class AddBody(BaseModel):
     id: str | int | None = None
@@ -342,34 +168,6 @@ class AddBody(BaseModel):
     dl: str | None = None
     author: str | None = None
     narrator: str | None = None
-
-def record_history(mam_id: str, title: str, author: str, narrator: str, dl: str, qb_hash: str | None):
-    with engine.begin() as cx:
-        cx.execute(text("""
-            INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-            VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
-        """), {
-            "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
-            "dl": dl, "qb_status": "added", "qb_hash": qb_hash,
-            "added_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        })
-
-async def qb_find_hash(client: httpx.AsyncClient, mam_id: str, title: str) -> str | None:
-    if not mam_id:
-        return None
-    info = await client.get(f"{settings.QB_URL}/api/v2/torrents/info",
-                            params={"tag": f"mamid={mam_id}", "filter": "all"})
-    try:
-        arr = info.json()
-    except Exception:
-        return None
-    if not isinstance(arr, list) or not arr:
-        return None
-    tlow = title.lower()
-    for tor in arr:
-        if tlow and (tor.get("name") or "").lower().startswith(tlow[:20]):
-            return tor.get("hash")
-    return arr[0].get("hash")
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -382,135 +180,28 @@ async def add_to_qb(body: AddBody):
     if not mam_id:
         # Both documented download forms need ?tid=<id>.
         raise HTTPException(status_code=400, detail="Missing MAM torrent id")
-    if not mam_id.isdigit():
-        raise HTTPException(status_code=400, detail="MAM torrent id must be numeric")
 
-    # tags: existing + mamid=<id>
-    tag_list = [t.strip() for t in (settings.QB_TAGS or "").split(",") if t.strip()]
-    tag_list.append(f"mamid={mam_id}")
-    form = {"category": settings.QB_CATEGORY, "tags": ",".join(tag_list)}
-    if settings.QB_SAVEPATH:
-        form["savepath"] = settings.QB_SAVEPATH
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        await qb_login(client)
-
-        if dl:
-            # Documented cookie-less form; qB fetches it. No fallback if qB rejects it.
-            form["urls"] = mam.build_dl_url(dl, mam_id)
-            r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form)
-            if r.status_code == 409:
-                raise qb_duplicate()
-            if not qb_add_ok(r):
-                raise qb_error(f"qB add (url) failed: {r.status_code} {r.text[:160]}")
-        else:
-            # No dl hash: one cookie-authenticated GET download.php?tid=<id>, then upload.
-            torrent_bytes = await mam.fetch_torrent(settings.MAM_COOKIE, mam_id)
-            files = {"torrents": ("mam.torrent", torrent_bytes, "application/x-bittorrent")}
-            r = await client.post(f"{settings.QB_URL}/api/v2/torrents/add", data=form, files=files)
-            if r.status_code == 409:
-                raise qb_duplicate()
-            if not qb_add_ok(r):
-                raise qb_error(f"qB add (upload) failed: {r.status_code} {r.text[:160]}")
-
-        qb_hash = await qb_find_hash(client, mam_id, title)
-
-    record_history(mam_id, title, author, narrator, dl, qb_hash)
+    qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title)
+    db.record_history(mam_id, title, author, narrator, dl, qb_hash)
     return {"ok": True}
 
 # ---------------------------- History ----------------------------
 @app.get("/history")
 def history():
-    with engine.begin() as cx:
-        rows = cx.execute(text("""
-            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status
-            FROM history
-            ORDER BY id DESC
-            LIMIT 200
-        """)).mappings().all()
-    return {"items": list(rows)}
+    return {"items": db.list_history()}
 
 @app.delete("/history/{row_id}")
 def delete_history(row_id: int):
-    with engine.begin() as cx:
-        cx.execute(text("DELETE FROM history WHERE id = :id"), {"id": row_id})
+    db.delete_history(row_id)
     return {"ok": True}
-    
+
 # ---------------------------- List Importable ----------------------------
 @app.get("/qb/torrents")
 async def qb_torrents():
-    async with httpx.AsyncClient(timeout=30) as c:
-        await qb_login(c)
-        # completed in our category
-        r = await c.get(f"{settings.QB_URL}/api/v2/torrents/info",
-                        params={"category": settings.QB_CATEGORY, "filter": "completed"})
-        r.raise_for_status()
-        infos = r.json() if isinstance(r.json(), list) else []
+    # completed in our category
+    return {"items": await qb.completed_torrents(settings.QB_CATEGORY)}
 
-        out = []
-        for t in infos:
-            h = t.get("hash")
-            if not h:
-                continue
-            # files to determine single vs multi + root
-            fr = await c.get(f"{settings.QB_URL}/api/v2/torrents/files", params={"hash": h})
-            files = fr.json() if fr.status_code == 200 else []
-            # compute top-level root (before first '/')
-            roots = set()
-            for f in files:
-                name = (f.get("name") or "").lstrip("/")
-                roots.add(name.split("/", 1)[0])
-            root = (list(roots)[0] if roots else t.get("name") or "")
-            single_file = len(files) == 1 and "/" not in (files[0].get("name") or "")
-            out.append({
-                "hash": h,
-                "name": t.get("name"),
-                "save_path": t.get("save_path"),  # absolute host path, but we mounted /media so it should start with /media
-                "root": root,
-                "single_file": single_file,
-                "size": t.get("total_size"),
-                "added_on": t.get("added_on"),
-            })
-        return {"items": out}
-        
 # ---------------------------- Perform Import ----------------------------
-
-from pathlib import Path
-import shutil
-
-AUDIO_EXTS = None  # copy everything except .cue (per your request)
-
-def sanitize(name: str) -> str:
-    s = name.strip().replace(":", " -").replace("\\", "﹨").replace("/", "﹨")
-    return re.sub(r"\s+", " ", s)[:200] or "Unknown"
-
-def next_available(path: Path) -> Path:
-    if not path.exists():
-        return path
-    i = 2
-    while True:
-        cand = path.with_name(f"{path.name} ({i})")
-        if not cand.exists():
-            return cand
-        i += 1
-
-def try_hardlink(src: Path, dst: Path):
-    try:
-        os.link(src, dst)
-        return True
-    except Exception:
-        return False
-
-def copy_one(src: Path, dst: Path):
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if settings.IMPORT_MODE == "move":
-        shutil.move(src, dst)
-    elif settings.IMPORT_MODE == "link":
-        if not try_hardlink(src, dst):
-            shutil.copy2(src, dst)
-    else:  # copy
-        shutil.copy2(src, dst)
-
 class ImportBody(BaseModel):
     author: str
     title: str
@@ -518,112 +209,17 @@ class ImportBody(BaseModel):
     history_id: int | None = None
 
 @app.post("/import")
-def do_import(body: ImportBody):
-    author = sanitize(body.author)
-    title = sanitize(body.title)
+async def do_import(body: ImportBody):
     h = body.hash
+    src_root = Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
 
-    # Query qB for files, properties, and content_path
-    with httpx.Client(timeout=30) as c:
-        # login
-        lr = c.post(f"{settings.QB_URL}/api/v2/auth/login",
-                    data={"username": settings.QB_USER, "password": settings.QB_PASS})
-        if not qb_login_ok(lr):
-            raise qb_error(f"qB login failed: {lr.status_code} {lr.text[:120]}")
+    # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
+    dest_dir = await run_in_threadpool(
+        importer.import_audiobook, src_root, body.author, body.title, settings.LIB_DIR, settings.IMPORT_MODE)
 
-        # files (used to detect single-file)
-        fr = c.get(f"{settings.QB_URL}/api/v2/torrents/files", params={"hash": h})
-        if fr.status_code != 200:
-            raise HTTPException(status_code=UPSTREAM_FAILED, detail=f"qB files failed: {fr.status_code}")
-        files = fr.json()
-        if not files:
-            raise HTTPException(status_code=404, detail="No files found for torrent")
-
-        # properties (optional save_path)
-        pr = c.get(f"{settings.QB_URL}/api/v2/torrents/properties", params={"hash": h})
-        save_path = ""
-        if pr.status_code == 200:
-            save_path = (pr.json().get("save_path") or "").rstrip("/")
-
-        # info (to get content_path)
-        ir = c.get(f"{settings.QB_URL}/api/v2/torrents/info", params={"hashes": h})
-        info_list = ir.json() if ir.status_code == 200 else []
-        info = info_list[0] if isinstance(info_list, list) and info_list else {}
-        content_path = info.get("content_path") or ""
-        if not content_path:
-            raise HTTPException(status_code=404, detail="Torrent content path not found")
-
-    # map qB’s internal paths to this container’s paths
-    def map_qb_path(p: str) -> str:
-        p = (p or "").strip()
-        if not p:
-            return p
-        for qb_prefix, app_prefix in settings.QB_PATH_MAP:
-            qb = qb_prefix.rstrip("/") or "/"
-            if p == qb or p.startswith(qb + "/"):
-                return (app_prefix.rstrip("/") or "/") + p[len(qb):]
-        if p.startswith("/media/"):
-            return p
-        # Back-compat for common Unraid-style host paths mounted at /media
-        if p.startswith("/mnt/user/media"):
-            return p.replace("/mnt/user/media", "/media", 1)
-        if p.startswith("/mnt/media"):
-            return p.replace("/mnt/media", "/media", 1)
-        return p
-
-    src_root = Path(map_qb_path(content_path))
-
-    # Destination: /library/Author/Title[/...]
-    lib = Path(settings.LIB_DIR)
-    author_dir = lib / author
-    author_dir.mkdir(parents=True, exist_ok=True)
-    dest_dir = next_available(author_dir / title)
-
-    # Copy/link all (skip .cue)
-    if src_root.is_file():
-        if src_root.suffix.lower() == ".cue":
-            raise HTTPException(status_code=400, detail="Only .cue file found; nothing to import")
-        copy_one(src_root, dest_dir / src_root.name)
-    else:
-        for p in src_root.rglob("*"):
-            if not p.is_file():
-                continue
-            if p.suffix.lower() == ".cue":
-                continue
-            rel = p.relative_to(src_root)
-            copy_one(p, dest_dir / rel)
-
-    # --- post-import: clear or change category so it disappears from our list ---
+    # post-import: clear or change category so it disappears from our list
     if h and settings.QB_URL:
-        try:
-            with httpx.Client(timeout=15) as c2:
-                lr = c2.post(
-                    f"{settings.QB_URL}/api/v2/auth/login",
-                    data={"username": settings.QB_USER, "password": settings.QB_PASS},
-                )
-                if qb_login_ok(lr):
-                    # Setting to empty string unsets the category on most qB versions.
-                    # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY to that name.
-                    c2.post(
-                        f"{settings.QB_URL}/api/v2/torrents/setCategory",
-                        data={"hashes": h, "category": settings.QB_POSTIMPORT_CATEGORY},
-                    )
-        except Exception as _e:
-            # Best effort: don't fail the import if this errors.
-            pass
+        await qb.set_category_best_effort(h, settings.QB_POSTIMPORT_CATEGORY)
 
-    # --- mark history as imported ---
-    with engine.begin() as cx:
-        if body.history_id is not None:
-            cx.execute(
-                text("UPDATE history SET qb_status='imported', imported_at=:ts WHERE id=:id"),
-                {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "id": body.history_id},
-            )
-        else:
-            # Fallback: try by torrent hash if we have it
-            cx.execute(
-                text("UPDATE history SET qb_status='imported', imported_at=:ts WHERE qb_hash=:h"),
-                {"ts": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"), "h": body.hash},
-            )
-
+    db.mark_imported(body.history_id, h)
     return {"ok": True, "dest": str(dest_dir)}

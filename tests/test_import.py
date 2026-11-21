@@ -6,6 +6,7 @@ import httpx
 import pytest
 from sqlalchemy import text
 
+import db
 import main
 
 HASH = "deadbeef" * 5
@@ -147,13 +148,13 @@ def test_import_avoids_collisions(net, client, dirs, monkeypatch):
 def test_import_marks_history_imported(net, client, dirs, monkeypatch):
     dl, _ = dirs
     monkeypatch.setattr(main.settings, "IMPORT_MODE", "copy")
-    with main.engine.begin() as cx:
+    with db.engine.begin() as cx:
         hid = cx.execute(text("INSERT INTO history (mam_id, title, qb_hash, qb_status) VALUES ('9','T',:h,'added')"),
                          {"h": HASH}).lastrowid
     files = {"01.mp3": b"a"}
     qb_for(net, make_torrent(dl, files), files)
     client.post("/import", json={"author": "A", "title": "T", "hash": HASH, "history_id": hid})
-    with main.engine.begin() as cx:
+    with db.engine.begin() as cx:
         row = cx.execute(text("SELECT qb_status, imported_at FROM history WHERE id=:id"), {"id": hid}).mappings().one()
     assert row["qb_status"] == "imported" and row["imported_at"]
 
@@ -175,8 +176,32 @@ def test_import_qb_login_failure(net, client, dirs):
 
 
 def test_history_list_and_delete(client):
-    with main.engine.begin() as cx:
+    with db.engine.begin() as cx:
         hid = cx.execute(text("INSERT INTO history (mam_id, title, qb_status) VALUES ('77','Del','added')")).lastrowid
     assert any(i["id"] == hid for i in client.get("/history").json()["items"])
     client.delete(f"/history/{hid}")
     assert not any(i["id"] == hid for i in client.get("/history").json()["items"])
+
+
+# ---------------- path mapping ----------------
+import importer
+
+
+@pytest.mark.parametrize("qb_path,expected", [
+    ("/downloads/Book", "/media/torrents/Book"),
+    ("/downloads", "/media/torrents"),
+    ("/downloadsX/Book", "/downloadsX/Book"),          # prefix must match a whole segment
+    ("/data/Book", "/srv/data/Book"),                   # second mapping
+    ("/media/torrents/Book", "/media/torrents/Book"),   # already in-container
+    ("/mnt/user/media/torrents/B", "/media/torrents/B"),  # legacy Unraid fallback
+    ("/mnt/media/torrents/B", "/media/torrents/B"),
+    ("", ""),
+])
+def test_map_qb_path(qb_path, expected):
+    pm = [("/downloads", "/media/torrents"), ("/data", "/srv/data")]
+    assert importer.map_qb_path(qb_path, pm) == expected
+
+
+def test_sanitize():
+    assert importer.sanitize("  A: B/C\\D   E ") == "A - B﹨C﹨D E"
+    assert importer.sanitize("   ") == "Unknown"
