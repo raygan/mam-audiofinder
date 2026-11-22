@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-import db, importer, mam, qb
+import db, importer, mam, qb, wishlist
 from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
@@ -80,6 +80,10 @@ mam.install_log_redaction()
 
 @app.exception_handler(qb.QbError)
 async def qb_error_handler(request: Request, exc: qb.QbError):
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
+@app.exception_handler(wishlist.WishlistError)
+async def wishlist_error_handler(request: Request, exc: wishlist.WishlistError):
     return JSONResponse({"detail": exc.detail}, status_code=exc.status)
 
 @app.exception_handler(importer.ImportFailed)
@@ -194,6 +198,7 @@ class AddBody(BaseModel):
     author: str | None = None
     narrator: str | None = None
     media_type: str | None = None
+    wishlist_id: int | None = None  # set when adding a wishlist match
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -213,6 +218,62 @@ async def add_to_qb(body: AddBody):
 
     qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title, media_type=media_type)
     db.record_history(mam_id, title, author, narrator, dl, qb_hash, media_type)
+    if body.wishlist_id is not None:
+        try:
+            wishlist.mark_added(body.wishlist_id, mam_id, media_type)
+        except wishlist.WishlistError as e:
+            # The torrent is already in qB; don't report the add as failed.
+            log.warning("Added %s but couldn't update wishlist item %s: %s", mam_id, body.wishlist_id, e.detail)
+    return {"ok": True}
+
+# ---------------------------- Wishlist ----------------------------
+class WishlistCreate(BaseModel):
+    query: str
+    media: str = "audiobook"
+    srch_in: list[str] | None = None
+    sort_type: str = "default"
+    label: str | None = None
+    filters: dict | None = None
+    mode: str = "notify"
+    check_interval_hours: int | None = None
+    seen: list[str | int] | None = None  # MAM ids already on screen (baseline)
+
+@app.get("/wishlist")
+def wishlist_list():
+    return {
+        "items": wishlist.list_items(),
+        "requests_last_24h": wishlist.requests_last_24h(),
+        "max_requests_per_day": settings.WISHLIST_MAX_REQUESTS_PER_DAY,
+    }
+
+@app.post("/wishlist")
+def wishlist_create(body: WishlistCreate):
+    # Saving never contacts MAM; the results already on screen are the baseline.
+    return wishlist.create(**body.model_dump())
+
+@app.patch("/wishlist/{item_id}")
+def wishlist_update(item_id: int, fields: dict):
+    return wishlist.update(item_id, fields)
+
+@app.delete("/wishlist/{item_id}")
+def wishlist_delete(item_id: int):
+    wishlist.delete(item_id)
+    return {"ok": True}
+
+@app.post("/wishlist/{item_id}/check")
+async def wishlist_check(item_id: int):
+    """A user-initiated wishlist search ("check now")."""
+    if not settings.MAM_COOKIE:
+        raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
+    return await wishlist.check(item_id, settings.MAM_COOKIE, trigger="manual")
+
+@app.get("/wishlist/{item_id}/matches")
+def wishlist_matches(item_id: int, include_dismissed: bool = False):
+    return {"matches": wishlist.matches(item_id, include_dismissed)}
+
+@app.post("/wishlist/{item_id}/matches/{mam_id}/dismiss")
+def wishlist_dismiss(item_id: int, mam_id: str):
+    wishlist.dismiss(item_id, mam_id)
     return {"ok": True}
 
 # ---------------------------- History ----------------------------

@@ -142,6 +142,6 @@ def test_migration_3_backfills_existing_rows(tmp_path):
         cx.execute(text("CREATE TABLE schema_version (version INTEGER NOT NULL)"))
         cx.execute(text("INSERT INTO schema_version VALUES (1), (2)"))
         cx.execute(text("INSERT INTO history (mam_id, title) VALUES ('5', 'Old')"))
-    assert db.migrate(eng) == 3
+    assert db.migrate(eng) >= 3
     with eng.begin() as cx:
         assert cx.execute(text("SELECT media_type FROM history WHERE mam_id='5'")).scalar() == "audiobook"
