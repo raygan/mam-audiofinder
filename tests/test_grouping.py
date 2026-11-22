@@ -71,3 +71,31 @@ def test_mediatype_fallback():
 def test_malformed_info_fields_do_not_crash():
     r = mam.normalize_result({"id": 1, "title": "T", "author_info": "{not json", "series_info": "[1,2]"})
     assert r["group"] and r["series"] == ""
+
+
+def audiobook(id_, fmt, narrators):
+    return {"id": id_, "main_cat": 13, "title": "Saga 1", "filetype": fmt,
+            "author_info": '{"1":"Ann Author"}', "narrator_info": narrators,
+            "series_info": '{"9":["Saga","1",1.0]}'}
+
+
+def test_audiobooks_with_different_narrators_are_not_grouped():
+    a = mam.normalize_result(audiobook(1, "m4b", '{"10":"Ned Narrator"}'))
+    b = mam.normalize_result(audiobook(2, "mp3", '{"10":"Ned Narrator"}'))
+    c = mam.normalize_result(audiobook(3, "m4b", '{"11":"Nia Other"}'))
+    d = mam.normalize_result(audiobook(4, "m4b", '{"10":"Ned Narrator","11":"Nia Other"}'))
+    assert a["group"] == b["group"]
+    assert len({a["group"], c["group"], d["group"]}) == 3
+
+
+def test_narrator_order_does_not_matter():
+    a = mam.normalize_result(audiobook(1, "m4b", '{"10":"A","11":"B"}'))
+    b = mam.normalize_result(audiobook(2, "mp3", '{"11":"B","10":"A"}'))
+    assert a["group"] == b["group"]
+
+
+def test_ebooks_ignore_narrator_field():
+    base = ebook(1, "X", "epub", series='{"9":["Saga","1",1.0]}')
+    a = mam.normalize_result({**base, "narrator_info": "{}"})
+    b = mam.normalize_result({**base, "id": 2, "filetype": "pdf", "narrator_info": '{"10":"Someone"}'})
+    assert a["group"] == b["group"]

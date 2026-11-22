@@ -483,15 +483,21 @@ def _media_type(item: dict) -> str:
 def group_key(item: dict) -> str:
     """Torrents of the same book share a key: same media type, same author
     ids, and the same series id + number (or, without a series, the same
-    normalised title). Audiobook and ebook versions are never grouped."""
+    normalised title). Audiobook and ebook versions are never grouped, and
+    audiobooks with different narrators are different recordings, so the
+    narrator ids are part of an audiobook's key."""
+    media = _media_type(item)
     authors = sorted(_json_obj(item.get("author_info")))
     who = ",".join(authors) or _norm_title(_flatten(item.get("author_info")))
+    if media == "audiobook":
+        narrators = sorted(_json_obj(item.get("narrator_info")))
+        who += "|n:" + (",".join(narrators) or _norm_title(_flatten(item.get("narrator_info"))))
     series = [s for s in _series(item) if s[2]]
     if series:
         what = "s:" + ";".join(f"{sid}#{num}" for sid, _, num in sorted(series))
     else:
         what = "t:" + _norm_title(item.get("title") or item.get("name") or "")
-    return f"{_media_type(item)}|{who}|{what}"
+    return f"{media}|{who}|{what}"
 
 
 def normalize_result(item: dict) -> dict:
