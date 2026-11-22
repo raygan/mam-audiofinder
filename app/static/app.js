@@ -91,82 +91,123 @@ async function runSearch() {
       return;
     }
 
+    // Torrents of the same book share it.group (same media type, authors and
+    // series number or title); show one row per book with its other versions
+    // behind a toggle. Groups keep MAM's sort order.
+    const groups = new Map();
     rows.forEach((it) => {
-      const tr = document.createElement('tr');
-      const sl = `${it.seeders ?? '-'} / ${it.leechers ?? '-'}`;
+      const key = it.group || `id:${it.id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    });
 
-      // Add-to-qB button
-      const addBtn = document.createElement('button');
-      addBtn.textContent = 'Add';
-      // enable if we have a direct dl hash OR at least an id
-      addBtn.disabled = !(it.dl || it.id);
-      addBtn.addEventListener('click', async () => {
-        addBtn.disabled = true;
-        addBtn.textContent = 'Adding…';
-        try {
-          const resp = await fetch('/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: String(it.id ?? ''),
-              title: it.title || '',
-              dl: it.dl || '',
-              author: it.author_info || '',
-              narrator: it.narrator_info || '',
-              media_type: it.media_type || 'audiobook'
-            })
-          });
-          if (resp.status === 409) {
-            addBtn.textContent = 'Already in qB';
-            addBtn.title = 'This torrent is already in qBittorrent';
-            return;
-          }
-          if (!resp.ok) {
-            let msg = `HTTP ${resp.status}`;
-            try {
-              const j = await resp.json();
-              if (j?.detail) msg += ` — ${j.detail}`;
-            } catch {}
-            throw new Error(msg);
-          }
-          addBtn.textContent = 'Added';
-          await loadHistory();
-        } catch (e) {
-          console.error(e);
-          addBtn.textContent = 'Error';
-          addBtn.title = e.message;
-          addBtn.disabled = false;
-          statusEl.textContent = `Add failed: ${e.message}`;
-        }
-      });
-
-      // Torrent details link on MAM
-      const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
-
-      tr.innerHTML = `
-        <td>${mediaBadge(it.media_type)}${escapeHtml(it.title || '')}</td>
-        <td>${escapeHtml(it.author_info || '')}</td>
-        <td>${escapeHtml(it.narrator_info || '')}</td>
-        <td>${escapeHtml(it.format || '')}</td>
-        <td class="right">${formatSize(it.size)}</td>
-        <td class="right">${sl}</td>
-        <td>${escapeHtml(it.added || '')}</td>
-        <td class="center">
-          ${detailsURL ? `<a href="${detailsURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}
-        </td>
-        <td></td>
-      `;
-      tr.lastElementChild.appendChild(addBtn);
+    groups.forEach((items) => {
+      const [first, ...others] = items;
+      const tr = makeResultRow(first);
       tbody.appendChild(tr);
+      if (!others.length) return;
+
+      const versionRows = others.map((it) => {
+        const vr = makeResultRow(it);
+        vr.className = 'version';
+        vr.style.display = 'none';
+        tbody.appendChild(vr);
+        return vr;
+      });
+      const formats = [...new Set(items.map(it => it.format).filter(Boolean))].join(' · ');
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'versions-toggle';
+      const label = (open) => `${open ? '▾' : '▸'} ${items.length} versions${formats ? ` (${formats})` : ''}`;
+      toggle.textContent = label(false);
+      toggle.addEventListener('click', () => {
+        const open = versionRows[0].style.display === 'none';
+        versionRows.forEach(vr => { vr.style.display = open ? '' : 'none'; });
+        toggle.textContent = label(open);
+      });
+      tr.firstElementChild.appendChild(document.createElement('br'));
+      tr.firstElementChild.appendChild(toggle);
     });
 
     table.style.display = '';
-    statusEl.textContent = `${rows.length} results shown`;
+    statusEl.textContent = groups.size === rows.length
+      ? `${rows.length} results shown`
+      : `${rows.length} results shown (${groups.size} books)`;
     await loadHistory();
   } catch (e) {
     console.error(e);
     statusEl.textContent = `Search failed: ${e.message}`;
   }
+}
+
+// ---------- Result rows ----------
+function makeResultRow(it) {
+  const tr = document.createElement('tr');
+  const sl = `${it.seeders ?? '-'} / ${it.leechers ?? '-'}`;
+
+  // Add-to-qB button
+  const addBtn = document.createElement('button');
+  addBtn.textContent = 'Add';
+  // enable if we have a direct dl hash OR at least an id
+  addBtn.disabled = !(it.dl || it.id);
+  addBtn.addEventListener('click', async () => {
+    addBtn.disabled = true;
+    addBtn.textContent = 'Adding…';
+    try {
+      const resp = await fetch('/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: String(it.id ?? ''),
+          title: it.title || '',
+          dl: it.dl || '',
+          author: it.author_info || '',
+          narrator: it.narrator_info || '',
+          media_type: it.media_type || 'audiobook'
+        })
+      });
+      if (resp.status === 409) {
+        addBtn.textContent = 'Already in qB';
+        addBtn.title = 'This torrent is already in qBittorrent';
+        return;
+      }
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try {
+          const j = await resp.json();
+          if (j?.detail) msg += ` — ${j.detail}`;
+        } catch {}
+        throw new Error(msg);
+      }
+      addBtn.textContent = 'Added';
+      await loadHistory();
+    } catch (e) {
+      console.error(e);
+      addBtn.textContent = 'Error';
+      addBtn.title = e.message;
+      addBtn.disabled = false;
+      statusEl.textContent = `Add failed: ${e.message}`;
+    }
+  });
+
+  // Torrent details link on MAM
+  const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
+
+  tr.innerHTML = `
+    <td>${mediaBadge(it.media_type)}${escapeHtml(it.title || '')}${it.series ? `<div class="muted">${escapeHtml(it.series)}</div>` : ''}</td>
+    <td>${escapeHtml(it.author_info || '')}</td>
+    <td>${escapeHtml(it.narrator_info || '')}</td>
+    <td>${escapeHtml(it.format || '')}</td>
+    <td class="right">${formatSize(it.size)}</td>
+    <td class="right">${sl}</td>
+    <td>${escapeHtml(it.added || '')}</td>
+    <td class="center">
+      ${detailsURL ? `<a href="${detailsURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}
+    </td>
+    <td></td>
+  `;
+  tr.lastElementChild.appendChild(addBtn);
+  return tr;
 }
 
 // ---------- Helpers ----------

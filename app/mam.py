@@ -439,11 +439,69 @@ def _detect_format(item: dict) -> str:
     return "/".join(dict.fromkeys(t.upper() for t in toks))
 
 
+def _json_obj(v) -> dict:
+    """author_info / series_info arrive as JSON strings of {id: ...}."""
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str) and v.strip().startswith("{"):
+        try:
+            obj = json.loads(v)
+            return obj if isinstance(obj, dict) else {}
+        except ValueError:
+            return {}
+    return {}
+
+
+def _series(item: dict) -> list[tuple[str, str, str]]:
+    """[(series_id, name, number)] from {"97828": ["Name", "3", 3.0]}."""
+    out = []
+    for sid, val in _json_obj(item.get("series_info")).items():
+        if isinstance(val, list) and val:
+            out.append((str(sid), str(val[0]), str(val[1]) if len(val) > 1 else ""))
+        elif isinstance(val, str):
+            out.append((str(sid), val, ""))
+    return out
+
+
+_FORMAT_WORDS = re.compile(r"(?i)\b(mp3|m4b|m4a|flac|aac|ogg|opus|epub|pdf|mobi|azw3?|cbz|cbr|djvu|fb2|unabridged|retail)\b")
+
+
+def _norm_title(title: str) -> str:
+    t = re.sub(r"[\[(].*?[\])]", " ", title or "")  # [EPUB], (Unabridged) ...
+    t = _FORMAT_WORDS.sub(" ", t)
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", t.lower()).split())
+
+
+def _media_type(item: dict) -> str:
+    mt = CAT_MEDIA.get(str(item.get("main_cat") or ""))
+    if mt:
+        return mt
+    # Fallback seen in real responses: mediatype 1 = audio, 2 = ebook.
+    return {"1": "audiobook", "2": "ebook"}.get(str(item.get("mediatype") or ""), "")
+
+
+def group_key(item: dict) -> str:
+    """Torrents of the same book share a key: same media type, same author
+    ids, and the same series id + number (or, without a series, the same
+    normalised title). Audiobook and ebook versions are never grouped."""
+    authors = sorted(_json_obj(item.get("author_info")))
+    who = ",".join(authors) or _norm_title(_flatten(item.get("author_info")))
+    series = [s for s in _series(item) if s[2]]
+    if series:
+        what = "s:" + ";".join(f"{sid}#{num}" for sid, _, num in sorted(series))
+    else:
+        what = "t:" + _norm_title(item.get("title") or item.get("name") or "")
+    return f"{_media_type(item)}|{who}|{what}"
+
+
 def normalize_result(item: dict) -> dict:
+    series = _series(item)
     return {
-        "media_type": CAT_MEDIA.get(str(item.get("main_cat") or ""), ""),
+        "media_type": _media_type(item),
+        "group": group_key(item),
         "id": str(item.get("id") or item.get("tid") or ""),
         "title": item.get("title") or item.get("name"),
+        "series": ", ".join(f"{name} #{num}" if num else name for _, name, num in series),
         "author_info": _flatten(item.get("author_info")),
         "narrator_info": _flatten(item.get("narrator_info")),
         "format": _detect_format(item),

@@ -267,7 +267,7 @@ def test_real_audiobook_capture_normalizes(net):
     assert first["format"] == "M4B"
     assert first["seeders"] == 149
     assert first["dl"] is None  # this capture predates dlLink-in-body
-    assert out["results"][2]["format"] == "MP3"
+    assert out["results"][-1]["format"] == "MP3"
     assert out["total"] == 6 and out["total_found"] == 6  # real field is "found"
 
 
