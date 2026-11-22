@@ -58,7 +58,8 @@ async def lifespan(_app):
         if problem:
             log.warning("Ebook import disabled: %s", problem)
         else:
-            log.info("Ebook ingest folder OK: %s", settings.EBOOK_INGEST_DIR)
+            # uvicorn's logger is shown at INFO; the app logger only shows warnings.
+            logging.getLogger("uvicorn.error").info("Ebook ingest folder OK: %s", settings.EBOOK_INGEST_DIR)
     yield
 
 app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespan)

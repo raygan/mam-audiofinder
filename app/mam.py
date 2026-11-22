@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, parse_qsl, urlencode
 
 import httpx
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 USER_AGENT = f"mam-audiofinder/{APP_VERSION}"
 
 # Fixed on purpose: never configurable, so the cookie can't be sent elsewhere.
