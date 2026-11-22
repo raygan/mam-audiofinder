@@ -4,7 +4,7 @@ Maps each rule in the "MAM rules come first" section of `docs/ROADMAP.md` to whe
 
 Run the checks: `.venv/bin/python -m pytest -q` (see `DEV_NOTES.md`). No test touches the network. `tests/conftest.py` routes every httpx client through a mock, and any unexpected MAM request fails the test.
 
-Last updated: Phase 0b (v0.7.0). Since 0b, `qb.py` reaches MAM only through `mam.build_dl_url()` / `mam.fetch_torrent()`, and no other module imports httpx for MAM.
+Last updated: Phase 1 (v0.8.0). Phase 1 adds no MAM endpoints or parameters: ebooks use the same documented search with `main_cat` 14 and the same download endpoint. Grouping, the ebook importer and Grimmory are all local. Since Phase 0b, `qb.py` reaches MAM only through `mam.build_dl_url()` / `mam.fetch_torrent()`, and no other module imports httpx for MAM.
 
 | # | Rule | Enforced in | Tests |
 |---|---|---|---|
@@ -16,6 +16,7 @@ Last updated: Phase 0b (v0.7.0). Since 0b, `qb.py` reaches MAM only through `mam
 | 2 | No HTML from MAM, ever (including the `cat` HTML snippet in JSON results) | Only the two JSON/.torrent endpoints are reachable. Non-JSON search bodies and non-bencode download bodies raise `MamUnexpectedResponse`; bodies are never echoed or parsed. Capture mode doesn't store HTML | `test_search_fails_closed_with_one_request` (HTML case), `test_fetch_torrent_rejects_non_torrent`, `test_error_messages_never_echo_body`, `test_capture_does_not_store_html` |
 | 3 | Cookie-only auth, `mam_id` only | `mam.build_cookie()` keeps only `mam_id` and rejects header-injection characters. There's no login code anywhere | `test_build_cookie_keeps_only_mam_id`, `test_search_sends_honest_headers_and_only_mam_id`, `test_no_cookie_means_no_request` |
 | 4 | Honest client identity | `mam.USER_AGENT = "mam-audiofinder/<version>"`; no `Origin`/`Referer` | `test_search_sends_honest_headers_and_only_mam_id`, `test_fetch_torrent_sends_honest_headers` |
+| 1e | Media selector maps only to documented categories: `audiobook` → `["13"]`, `ebook` → `["14"]`, `both` → `["13","14"]` in **one** request (`main_cat` is a documented array; confirmed with a real capture on 2026-11-22). Unknown media values are refused before sending | `mam.MEDIA_SEARCH`, `mam.search()`, `main.search` | `test_media_maps_to_documented_categories`, `test_unknown_media_rejected_without_sending`, `test_real_both_search_never_mixes_audio_and_ebook` |
 | 5 | Respect documented limits | No limits are documented yet. `perpage` is clamped to 5–100 (docs allow 5–1000). The scheduler limits come in Phase 2 | `test_unlisted_search_params_rejected` (perpage cases), `test_search_request_body_is_built_not_passed_through` |
 | 6 | Fail closed: no retries, no fallbacks, stop and tell the user | `mam._check_status()`: 3xx/401/403 → `MamAuthError`, 429/503 → `MamRateLimitError`, anything else → `MamUnexpectedResponse`. Redirects aren't followed. `main.mam_error_handler` returns the reason to the UI. Automated activity doesn't exist yet; the scheduler halt state comes in Phase 2 | `test_search_fails_closed_with_one_request`, `test_redirect_is_not_followed`, `test_add_fetch_auth_failure_fails_closed`, `test_search_auth_failure_surfaces_reason` |
 | 7 | Scheduler opt-in and conservative | N/A until Phase 2 | — |

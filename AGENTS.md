@@ -15,7 +15,7 @@
   - `db.py`: SQLite engine, versioned migrations (`MIGRATIONS`), and history queries.
   - `mam.py`: **the only module that talks to MyAnonamouse** (allowlist guard, see the compliance section above).
   - `qb.py`: the qBittorrent WebUI API, including `add_from_mam()`, which routes and the future scheduler share. It raises `QbError`/`QbDuplicate`, never HTTP errors.
-  - `importer.py`: local file import (no network).
+  - `importer.py`: local file import (no network). Audiobooks go to `LIB_DIR`; ebooks are always copied (never linked) into `EBOOK_INGEST_DIR`.
   - Phase 2 adds `wishlist.py` and `scheduler.py`.
 - HTML templates are in `app/templates/` (`index.html`, `setup.html`).
 - Static assets (JS, icons, screenshots) are in `app/static/`.
