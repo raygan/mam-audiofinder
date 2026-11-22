@@ -218,7 +218,7 @@ function makeResultRow(it) {
 // ---------- Ebook import (Grimmory) ----------
 // One torrent can hold several formats of a book; the user ticks what to copy
 // (preferred format pre-ticked). Files are always copied, never linked.
-async function openEbookImport(expTd, h, tr) {
+async function openEbookImport(expTd, h, tr, close) {
   expTd.innerHTML = `
     <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -321,10 +321,10 @@ async function openEbookImport(expTd, h, tr) {
       });
       if (!r.ok) throw new Error(await errorOf(r));
       const jr = await r.json();
-      st.textContent = `Copied to Grimmory: ${(jr.files || []).join(', ')}`;
-      goBtn.textContent = 'Imported';
+      statusEl.textContent = `${h.title || 'Ebook'}: copied to Grimmory (${(jr.files || []).join(', ')})`;
       const statusTd = tr.children[5];
       if (statusTd) statusTd.textContent = 'imported';
+      close();  // success: hide the panel; the result is in the status line
     } catch (e) {
       console.error(e);
       st.textContent = `Failed: ${e.message}`;
@@ -428,16 +428,20 @@ expTd.colSpan = hist.querySelector('thead tr').children.length; // match column 
 exp.appendChild(expTd);
 htbody.appendChild(exp);
 
+const closeImport = () => {
+  exp.style.display = 'none';
+  expTd.innerHTML = '';
+};
+
 importBtn.addEventListener('click', async () => {
   // toggle open/close
   if (exp.style.display === '') {
-    exp.style.display = 'none';
-    expTd.innerHTML = '';
+    closeImport();
     return;
   }
   exp.style.display = '';
   if (isEbook) {
-    await openEbookImport(expTd, h, tr);
+    await openEbookImport(expTd, h, tr, closeImport);
     return;
   }
   expTd.innerHTML = `
@@ -517,13 +521,13 @@ importBtn.addEventListener('click', async () => {
         throw new Error(msg);
       }
       const jr = await r.json();
-      st.textContent = `Done → ${jr.dest}`;
-      goBtn.textContent = 'Imported';
+      statusEl.textContent = `${title}: imported → ${jr.dest}`;
       
       // update Status cell in this row: columns are
       // 0 Title, 1 Author, 2 Narrator, 3 Link, 4 When, 5 Status, 6 Import, 7 Remove
       const statusTd = tr.children[5];
       if (statusTd) statusTd.textContent = 'imported';
+      closeImport();  // success: hide the panel; the result is in the status line
 
       // Bonus: refresh the torrents list so this one disappears if you clear/move category server-side
       // (optional) const _ = await fetch('/qb/torrents'); // ignore result
