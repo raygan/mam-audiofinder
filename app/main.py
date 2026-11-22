@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 import db, importer, mam, qb
-from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask
+from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
 APP_DIR = Path(__file__).resolve().parent
@@ -31,6 +31,7 @@ def setup_context(request: Request) -> dict:
         "qb_url": settings.QB_URL,
         "qb_user": settings.QB_USER,
         "lib_dir": settings.LIB_DIR,
+        "ebook_ingest_dir": settings.EBOOK_INGEST_DIR,
         "qb_prefix": qb_prefix,
         "app_prefix": app_prefix,
     }
@@ -41,6 +42,7 @@ class SetupPayload(BaseModel):
     qb_user: str | None = None
     qb_pass: str | None = None
     lib_dir: str | None = None
+    ebook_ingest_dir: str | None = None
     qb_prefix: str | None = None
     app_prefix: str | None = None
 
@@ -51,9 +53,16 @@ UPSTREAM_FAILED = qb.UPSTREAM_FAILED
 async def lifespan(_app):
     # uvicorn attaches its log handlers after import; cover those too.
     mam.install_log_redaction()
+    if settings.EBOOK_INGEST_DIR:
+        problem = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR, write_test=True)
+        if problem:
+            log.warning("Ebook import disabled: %s", problem)
+        else:
+            # uvicorn's logger is shown at INFO; the app logger only shows warnings.
+            logging.getLogger("uvicorn.error").info("Ebook ingest folder OK: %s", settings.EBOOK_INGEST_DIR)
     yield
 
-app = FastAPI(title="MAM Audiobook Finder", version=mam.APP_VERSION, lifespan=lifespan)
+app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
@@ -90,7 +99,12 @@ async def mam_error_handler(request: Request, exc: mam.MamError):
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    # "ok" stays a plain liveness flag; ebook_ingest reports the ebook import folder.
+    if not settings.EBOOK_INGEST_DIR:
+        ingest = "not configured"
+    else:
+        ingest = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR) or "ok"
+    return {"ok": True, "ebook_ingest": ingest}
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -123,6 +137,12 @@ async def api_setup(body: SetupPayload):
         cfg["QB_PASS"] = body.qb_pass
     if body.lib_dir and body.lib_dir.strip():
         cfg["LIB_DIR"] = body.lib_dir.strip()
+    if body.ebook_ingest_dir and body.ebook_ingest_dir.strip():
+        ingest = body.ebook_ingest_dir.strip().rstrip("/") or "/"
+        problem = importer.ingest_dir_problem(ingest, write_test=True)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        cfg["EBOOK_INGEST_DIR"] = ingest
 
     if body.qb_prefix and body.qb_prefix.strip() and body.app_prefix and body.app_prefix.strip():
         qb_prefix = body.qb_prefix.strip().rstrip("/") or "/"
@@ -144,8 +164,8 @@ async def search(payload: dict):
     if not settings.MAM_COOKIE:
         raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
 
-    # Only these fields are taken from the client; mam.search builds the
-    # request and the allowlist guard validates it.
+    # Only text, sortType, perpage and media are taken from the client;
+    # mam.search builds the request and the allowlist guard validates it.
     tor = payload.get("tor") or {}
     if not isinstance(tor, dict):
         raise HTTPException(status_code=400, detail="tor must be an object")
@@ -153,9 +173,14 @@ async def search(payload: dict):
     if not isinstance(text_q, str):
         raise HTTPException(status_code=400, detail="tor.text must be a string")
 
+    media = payload.get("media") or "audiobook"
+    if not isinstance(media, str) or media not in mam.MEDIA_SEARCH:
+        raise HTTPException(status_code=400, detail="media must be audiobook, ebook or both")
+
     result = await mam.search(
         settings.MAM_COOKIE,
         text=text_q,
+        media=media,
         sort_type=tor.get("sortType") or "default",
         perpage=payload.get("perpage", 25),
     )
@@ -168,6 +193,7 @@ class AddBody(BaseModel):
     dl: str | None = None
     author: str | None = None
     narrator: str | None = None
+    media_type: str | None = None
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -177,12 +203,16 @@ async def add_to_qb(body: AddBody):
     narrator = (body.narrator or "").strip()
     dl = (body.dl or "").strip()
 
+    media_type = body.media_type or "audiobook"
+
     if not mam_id:
         # Both documented download forms need ?tid=<id>.
         raise HTTPException(status_code=400, detail="Missing MAM torrent id")
+    if media_type not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="media_type must be audiobook or ebook")
 
-    qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title)
-    db.record_history(mam_id, title, author, narrator, dl, qb_hash)
+    qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title, media_type=media_type)
+    db.record_history(mam_id, title, author, narrator, dl, qb_hash, media_type)
     return {"ok": True}
 
 # ---------------------------- History ----------------------------
@@ -197,29 +227,64 @@ def delete_history(row_id: int):
 
 # ---------------------------- List Importable ----------------------------
 @app.get("/qb/torrents")
-async def qb_torrents():
-    # completed in our category
-    return {"items": await qb.completed_torrents(settings.QB_CATEGORY)}
+async def qb_torrents(media: str = "audiobook"):
+    # completed in this media type's category
+    if media not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="media must be audiobook or ebook")
+    return {"items": await qb.completed_torrents(settings.qb_category(media))}
 
 # ---------------------------- Perform Import ----------------------------
 class ImportBody(BaseModel):
-    author: str
-    title: str
     hash: str
     history_id: int | None = None
+    # audiobooks
+    author: str | None = None
+    title: str | None = None
+    # ebooks: relative paths from /import/ebook-choices
+    files: list[str] | None = None
+
+async def _content_root(h: str) -> Path:
+    return Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
+
+@app.get("/import/ebook-choices")
+async def ebook_choices(hash: str):
+    """Ebook files in a completed torrent, grouped by book, preferred format pre-selected."""
+    src_root = await _content_root(hash)
+    books = await run_in_threadpool(
+        importer.ebook_choices, src_root, settings.EBOOK_EXTENSIONS, settings.EBOOK_FORMAT_PREFERENCE)
+    return {"books": books}
 
 @app.post("/import")
 async def do_import(body: ImportBody):
     h = body.hash
-    src_root = Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
+    # The History row decides the importer, not the browser.
+    media_type = db.history_media_type(body.history_id, h)
 
-    # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
-    dest_dir = await run_in_threadpool(
-        importer.import_audiobook, src_root, body.author, body.title, settings.LIB_DIR, settings.IMPORT_MODE)
+    if media_type == "ebook":
+        problem = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        if not body.files:
+            raise HTTPException(status_code=400, detail="Choose at least one file to import")
+        src_root = await _content_root(h)
+        # Copy only (never link/move); flat into the ebook import folder.
+        copied = await run_in_threadpool(
+            importer.import_ebooks, src_root, body.files, settings.EBOOK_INGEST_DIR, settings.EBOOK_EXTENSIONS)
+        dest = settings.EBOOK_INGEST_DIR
+        result = {"files": [p.name for p in copied]}
+    else:
+        author, title = (body.author or "").strip(), (body.title or "").strip()
+        if not author or not title:
+            raise HTTPException(status_code=400, detail="Author and title are required")
+        src_root = await _content_root(h)
+        # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
+        dest = await run_in_threadpool(
+            importer.import_audiobook, src_root, author, title, settings.LIB_DIR, settings.IMPORT_MODE)
+        result = {}
 
     # post-import: clear or change category so it disappears from our list
     if h and settings.QB_URL:
-        await qb.set_category_best_effort(h, settings.QB_POSTIMPORT_CATEGORY)
+        await qb.set_category_best_effort(h, settings.postimport_category(media_type))
 
     db.mark_imported(body.history_id, h)
-    return {"ok": True, "dest": str(dest_dir)}
+    return {"ok": True, "dest": str(dest), **result}

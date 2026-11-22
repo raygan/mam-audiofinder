@@ -104,3 +104,15 @@ def client():
     from fastapi.testclient import TestClient
     with TestClient(main.app) as c:
         yield c
+
+
+@pytest.fixture
+def dirs(tmp_path, monkeypatch):
+    dl = tmp_path / "downloads"
+    lib = tmp_path / "library"
+    dl.mkdir()
+    lib.mkdir()
+    monkeypatch.setattr(main.settings, "QB_PATH_MAP", [("/downloads", str(dl))])
+    monkeypatch.setattr(main.settings, "LIB_DIR", str(lib))
+    monkeypatch.setattr(main.settings, "QB_POSTIMPORT_CATEGORY_AUDIO", "imported")
+    return dl, lib

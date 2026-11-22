@@ -9,11 +9,11 @@ See docs/MAM_COMPLIANCE.md for the rule -> code -> test mapping.
 import json, logging, os, re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, parse_qsl, urlencode, quote
+from urllib.parse import urlsplit, parse_qsl, urlencode
 
 import httpx
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 USER_AGENT = f"mam-audiofinder/{APP_VERSION}"
 
 # Fixed on purpose: never configurable, so the cookie can't be sent elsewhere.
@@ -58,6 +58,15 @@ SEARCH_FLAGS = {"dlLink", "description", "isbn", "mediaInfo", "my_snatched"}
 SRCH_IN = {"title", "author", "narrator", "series", "description", "filenames", "fileTypes", "tags"}
 # Documented: 13 AudioBooks, 14 E-Books (15/16 exist but the app doesn't use them).
 MAIN_CATS = {"13", "14"}
+CAT_MEDIA = {"13": "audiobook", "14": "ebook"}
+
+# media selector -> (main_cat, default srchIn). "both" is one request with both
+# documented categories (main_cat is a documented array).
+MEDIA_SEARCH = {
+    "audiobook": (["13"], ["title", "author", "narrator"]),
+    "ebook": (["14"], ["title", "author", "series"]),  # narrator is meaningless for ebooks
+    "both": (["13", "14"], ["title", "author", "narrator", "series"]),
+}
 SEARCH_TYPES = {"all", "active", "inactive", "fl", "fl-VIP", "VIP", "nVIP", "nMeta"}
 SORT_TYPES = {"default", "random"} | {
     f"{base}{d}"
@@ -69,11 +78,11 @@ PERPAGE_MIN, PERPAGE_MAX = 5, 100
 _DIGITS = re.compile(r"^\d+$")
 _HEX = re.compile(r"^[0-9a-fA-F]+$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-# dl hashes are opaque; allow only URL-safe characters so they can't inject
-# a path segment or query string. Tighten/loosen once a sanitized fixture
-# confirms the real character set.
 _EMPTY_RESULT = re.compile(r"^Nothing returned, out of (\d+)$")
-_DL_HASH = re.compile(r"^[A-Za-z0-9_-]{8,512}$")
+# dl hash: URL-safe base64 with optional '=' padding (shape confirmed from a
+# sanitized capture, 2026-11-21). Nothing that could add a path segment or
+# query string.
+_DL_HASH = re.compile(r"^[A-Za-z0-9_-]{8,512}={0,2}$")
 
 
 def _deny(msg: str):
@@ -292,7 +301,7 @@ def install_log_redaction():
 # When MAM_CAPTURE_DIR is set, each response to a user-initiated request is
 # written there sanitized: dl hashes are replaced by same-shape dummies, owner
 # names are blanked, Set-Cookie is dropped, and HTML bodies are not stored.
-_SANITIZE_KEYS_BLANK = {"owner_name"}
+_SANITIZE_KEYS_BLANK = {"owner_name", "ownership"}  # ownership = [uploader_id, "name"]
 
 
 def _shape(s: str) -> str:
@@ -430,10 +439,75 @@ def _detect_format(item: dict) -> str:
     return "/".join(dict.fromkeys(t.upper() for t in toks))
 
 
+def _json_obj(v) -> dict:
+    """author_info / series_info arrive as JSON strings of {id: ...}."""
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str) and v.strip().startswith("{"):
+        try:
+            obj = json.loads(v)
+            return obj if isinstance(obj, dict) else {}
+        except ValueError:
+            return {}
+    return {}
+
+
+def _series(item: dict) -> list[tuple[str, str, str]]:
+    """[(series_id, name, number)] from {"97828": ["Name", "3", 3.0]}."""
+    out = []
+    for sid, val in _json_obj(item.get("series_info")).items():
+        if isinstance(val, list) and val:
+            out.append((str(sid), str(val[0]), str(val[1]) if len(val) > 1 else ""))
+        elif isinstance(val, str):
+            out.append((str(sid), val, ""))
+    return out
+
+
+_FORMAT_WORDS = re.compile(r"(?i)\b(mp3|m4b|m4a|flac|aac|ogg|opus|epub|pdf|mobi|azw3?|cbz|cbr|djvu|fb2|unabridged|retail)\b")
+
+
+def _norm_title(title: str) -> str:
+    t = re.sub(r"[\[(].*?[\])]", " ", title or "")  # [EPUB], (Unabridged) ...
+    t = _FORMAT_WORDS.sub(" ", t)
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", t.lower()).split())
+
+
+def _media_type(item: dict) -> str:
+    mt = CAT_MEDIA.get(str(item.get("main_cat") or ""))
+    if mt:
+        return mt
+    # Fallback seen in real responses: mediatype 1 = audio, 2 = ebook.
+    return {"1": "audiobook", "2": "ebook"}.get(str(item.get("mediatype") or ""), "")
+
+
+def group_key(item: dict) -> str:
+    """Torrents of the same book share a key: same media type, same author
+    ids, and the same series id + number (or, without a series, the same
+    normalised title). Audiobook and ebook versions are never grouped, and
+    audiobooks with different narrators are different recordings, so the
+    narrator ids are part of an audiobook's key."""
+    media = _media_type(item)
+    authors = sorted(_json_obj(item.get("author_info")))
+    who = ",".join(authors) or _norm_title(_flatten(item.get("author_info")))
+    if media == "audiobook":
+        narrators = sorted(_json_obj(item.get("narrator_info")))
+        who += "|n:" + (",".join(narrators) or _norm_title(_flatten(item.get("narrator_info"))))
+    series = [s for s in _series(item) if s[2]]
+    if series:
+        what = "s:" + ";".join(f"{sid}#{num}" for sid, _, num in sorted(series))
+    else:
+        what = "t:" + _norm_title(item.get("title") or item.get("name") or "")
+    return f"{media}|{who}|{what}"
+
+
 def normalize_result(item: dict) -> dict:
+    series = _series(item)
     return {
+        "media_type": _media_type(item),
+        "group": group_key(item),
         "id": str(item.get("id") or item.get("tid") or ""),
         "title": item.get("title") or item.get("name"),
+        "series": ", ".join(f"{name} #{num}" if num else name for _, name, num in series),
         "author_info": _flatten(item.get("author_info")),
         "narrator_info": _flatten(item.get("narrator_info")),
         "format": _detect_format(item),
@@ -458,6 +532,7 @@ def clamp_perpage(v) -> int:
 async def search(
     cookie: str,
     text: str = "",
+    media: str = "audiobook",
     srch_in: list[str] | None = None,
     main_cat: list[str] | None = None,
     search_type: str = "all",
@@ -465,17 +540,26 @@ async def search(
     start_number: int = 0,
     perpage: int = 25,
 ) -> dict:
-    """One documented JSON search. Returns {"results", "total", "total_found"}."""
+    """One documented JSON search. Returns {"results", "total", "total_found"}.
+
+    `media` (audiobook | ebook | both) picks the documented main_cat and the
+    default search fields; explicit srch_in / main_cat override it.
+    """
+    if media not in MEDIA_SEARCH:
+        raise MamEndpointNotAllowed(f"unknown media type: {media!r}")
+    media_cats, media_srch_in = MEDIA_SEARCH[media]
     tor = {
         "text": text or "",
-        "srchIn": list(srch_in or ["title", "author", "narrator"]),
+        "srchIn": list(srch_in or media_srch_in),
         "searchType": search_type,
         "sortType": sort_type,
         "startNumber": str(int(start_number)),
-        "main_cat": [str(c) for c in (main_cat or ["13"])],
+        "main_cat": [str(c) for c in (main_cat or media_cats)],
     }
-    body = {"tor": tor, "perpage": clamp_perpage(perpage)}
-    url = f"{MAM_BASE}{SEARCH_PATH}?{urlencode({'dlLink': '1'})}"
+    # dlLink goes in the JSON body with the other top-level parameters: sent
+    # as a query param (as before 0.8), MAM returned no dl field at all.
+    body = {"tor": tor, "perpage": clamp_perpage(perpage), "dlLink": "1"}
+    url = f"{MAM_BASE}{SEARCH_PATH}"
 
     r = await _send("POST", url, cookie, "application/json", json_body=body)
     _capture("search", r)
@@ -502,13 +586,36 @@ async def search(
     return {
         "results": [normalize_result(it) for it in data if isinstance(it, dict)],
         "total": _to_int(raw.get("total")),
-        "total_found": _to_int(raw.get("total_found")),
+        # Docs say total_found; the real response (2026-11 capture) says found.
+        "total_found": _to_int(raw.get("total_found", raw.get("found"))),
     }
 
 
 def build_dl_url(dl: str, tid) -> str:
-    """Documented cookie-less download URL, for handing to qBittorrent."""
-    url = f"{MAM_BASE}{DOWNLOAD_PATH}/{quote(str(dl), safe='')}?{urlencode({'tid': str(tid)})}"
+    """Documented cookie-less download URL, for handing to qBittorrent.
+
+    MAM's dl value (confirmed 2026-11-21) is "<hash>?tid=<id>": the hash is
+    URL-safe base64 (A-Z a-z 0-9 _ -, optional '=' padding) and MAM has
+    already appended the documented ?tid=. A bare hash is also accepted.
+    The query, if present, must be exactly tid=<this torrent's id>; anything
+    else (fl, another param, a different id) is refused. The URL is rebuilt
+    from the validated parts, unencoded, so the guard sees what qB fetches.
+    """
+    dl, tid = str(dl or ""), str(tid if tid is not None else "")
+    if not _DIGITS.match(tid):
+        _deny("download.php takes exactly one parameter: tid=<numeric id>")
+    dl_hash, sep, query = dl.partition("?")
+    if sep:
+        try:
+            pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True)
+        except ValueError:
+            _deny("dl hash has an unexpected query string")
+        _check_download_query(pairs)  # exactly tid=<digits>; never fl
+        if pairs[0][1] != tid:
+            _deny("dl hash tid does not match the torrent id")
+    if not _DL_HASH.match(dl_hash):
+        _deny("dl hash has unexpected characters")
+    url = f"{MAM_BASE}{DOWNLOAD_PATH}/{dl_hash}?{urlencode({'tid': tid})}"
     check_allowed("GET", url)
     return url
 

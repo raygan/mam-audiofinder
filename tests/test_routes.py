@@ -23,7 +23,9 @@ def qb_adds(net):
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"ok": True}
+    j = client.get("/health").json()
+    assert j["ok"] is True
+    assert "ebook_ingest" in j
 
 
 def test_search_returns_normalized_results(net, client):
@@ -144,6 +146,9 @@ import pytest
     (httpx.Response(200, json={"success_count": 0, "failure_count": 0, "pending_count": 1}), True),
     (httpx.Response(200, json={"success_count": 0, "failure_count": 1, "pending_count": 0}), False),
     (httpx.Response(415, text="Torrent file is not valid"), False),
+    # Real reply from Raygan's qB (2026-11-21) to a URL add:
+    (httpx.Response(202, json={"added_torrent_ids": [], "failure_count": 0, "pending_count": 1, "success_count": 0}), True),
+    (httpx.Response(202, json={"added_torrent_ids": [], "failure_count": 1, "pending_count": 0, "success_count": 0}), False),
 ])
 def test_qb_add_reply_parsing(reply, ok):
     assert qb.add_ok(reply) is ok
@@ -199,3 +204,13 @@ def test_add_duplicate_returns_409_and_no_history(net, client, dl):
 def test_static_assets_are_versioned(client):
     html = client.get("/setup").text
     assert f"/static/setup.js?v={main._asset_version()}" in html
+
+
+
+def test_add_with_real_format_dl_hands_qb_single_tid(net, client):
+    h = "AAAAaaaa0000_-bbbb="
+    r = client.post("/add", json={"id": "882573", "title": "Saving Supervillains", "dl": f"{h}?tid=882573"})
+    assert r.status_code == 200, r.text
+    assert net.mam_requests == []
+    (add,) = qb_adds(net)
+    assert form_of(add)["urls"] == f"https://www.myanonamouse.net/tor/download.php/{h}?tid=882573"

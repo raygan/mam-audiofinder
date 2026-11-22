@@ -12,18 +12,6 @@ import main
 HASH = "deadbeef" * 5
 
 
-@pytest.fixture
-def dirs(tmp_path, monkeypatch):
-    dl = tmp_path / "downloads"
-    lib = tmp_path / "library"
-    dl.mkdir()
-    lib.mkdir()
-    monkeypatch.setattr(main.settings, "QB_PATH_MAP", [("/downloads", str(dl))])
-    monkeypatch.setattr(main.settings, "LIB_DIR", str(lib))
-    monkeypatch.setattr(main.settings, "QB_POSTIMPORT_CATEGORY", "imported")
-    return dl, lib
-
-
 def make_torrent(dl, files: dict[str, bytes], root="Some Book"):
     for rel, data in files.items():
         p = dl / root / rel

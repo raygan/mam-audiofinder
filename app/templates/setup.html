@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MAM Audiobook Finder – Setup</title>
+  <title>Book Finder – Setup</title>
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
@@ -31,8 +31,8 @@
 </head>
 <body>
   <header>
-    <img src="/static/logo.png" alt="Audiobook Finder logo" class="logo" />
-    <h1><a href="/" class="title-link">Audiobook Finder – Setup</a></h1>
+    <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
+    <h1><a href="/" class="title-link">Book Finder – Setup</a></h1>
   </header>
 
   <div class="card">
@@ -79,6 +79,12 @@
         <label for="lib_dir">Audiobookshelf library directory (inside this container)</label>
         <input id="lib_dir" name="lib_dir" type="text" value="{{ lib_dir }}" placeholder="/library/audiobooks" />
         <small>Where to place imported books, e.g. the root of your Audiobookshelf library. This should be the path within <em>this</em> container.</small>
+      </div>
+
+      <div class="row">
+        <label for="ebook_ingest_dir">Ebook import folder (inside this container)</label>
+        <input id="ebook_ingest_dir" name="ebook_ingest_dir" type="text" value="{{ ebook_ingest_dir }}" placeholder="/media/books/import" />
+        <small>Optional. The import (watch) folder your ebook library picks new books up from, e.g. <code>/media/books/import</code>. Ebooks are always copied (never hardlinked), so the library can't damage the seeding torrent. The folder must already exist and be writable by this container's user.</small>
       </div>
 
       <div class="row">

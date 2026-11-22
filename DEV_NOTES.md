@@ -38,7 +38,7 @@ The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes 
 2. In the web UI, do these searches yourself:
    - one audiobook search that returns results,
    - one search that returns nothing (e.g. `zzqqxxnotabook`),
-   - later, once Phase 1 adds the selector, one ebook search.
+   - one ebook search, and one Both search.
 3. Optional: an auth-failure capture. One way is to wait until the cookie expires naturally and run a search. Another is to temporarily paste a junk cookie in Setup and run one search. Only do this if you're comfortable sending one request with an invalid cookie.
 4. Open the files in `<DATA_DIR>/fixtures/` and check them before sharing. They contain titles and your own `my_snatched`/`bookmarked` flags, but no cookie or real `dl` hash.
 5. Copy them into `tests/fixtures/` in the repo, then remove `MAM_CAPTURE_DIR`.
@@ -51,6 +51,17 @@ The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes 
 - Versioned migrations: a `schema_version` table and `db.MIGRATIONS`. Migration 1 brings any older DB up to the v0.6 columns without touching rows; migration 2 indexes `history.mam_id`. They run on startup. **Back up `history.db` before the first start of 0.7.**
 - Housekeeping: all timestamps are timezone-aware UTC (`db.utc_now()`), the double `r.json()` in `/qb/torrents` is gone, and history inserts go through one helper.
 - Still open: see "Known gaps" in `docs/MAM_COMPLIANCE.md` (missing `dl` hash TODO, auth-failure fixture, `dl` character set).
+
+## Phase 1 (v0.8.0): ebooks
+
+- **Search:** an Audiobooks / Ebooks / Both selector (remembered per browser) maps to `main_cat` 13 / 14 / both in one request. Ebooks search title, author and series. Results carry `media_type`, `series`, and a `group` key.
+- **Grouping** (`mam.group_key`): same media type, author ids and series id + number (or normalised title), plus narrator ids for audiobooks. The browser shows one row per book, with other versions behind a toggle.
+- **qB:** `QB_CATEGORY_AUDIO`/`_EBOOK` and `QB_POSTIMPORT_CATEGORY_AUDIO`/`_EBOOK`, with the audio keys falling back to the pre-0.8 names. `QB_TAGS` defaults to `MAM`, and the `audiobook`/`ebook` tag is added per torrent.
+- **History:** migration 3 adds `media_type`. `/import` routes by the History row, not the browser.
+- **Ebook import** (`importer.ebook_choices` / `import_ebooks`): the user ticks formats per book. Files are always copied (never linked or moved), flat into `EBOOK_INGEST_DIR` via a hidden `.partial` and a rename. Every chosen path is validated before anything is copied.
+- **Ingest folder:** `importer.ingest_dir_problem`. The Setup save and startup do a real write test; `/health` reports `ebook_ingest` without writing.
+- **Real captures** now in `tests/fixtures/`: `search_audiobook.json`, `search_both.json`, `search_empty.json`.
+- **Findings from real responses:** `dlLink` must be in the JSON body. `dl` is `<hash>?tid=<id>`. The count field is `found`. Newer qB returns 204 for login, 202 for a pending URL add and 409 for a duplicate. `my_snatched` lags by a few minutes.
 
 ## How to Run for Testing
 
@@ -66,11 +77,11 @@ The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes 
 ## Release Notes / Checklist (GHCR)
 
 - Build and tag image from repo root:
-  - `docker build -t ghcr.io/raygan/mam-audiofinder:0.6 -t ghcr.io/raygan/mam-audiofinder:latest .`
+  - `docker build -t ghcr.io/raygan/mam-audiofinder:<version> -t ghcr.io/raygan/mam-audiofinder:latest .`
 - Login to GHCR (once per machine):
   - `echo "$GHCR_PAT" | docker login ghcr.io -u raygan --password-stdin`
 - Push tags:
-  - `docker push ghcr.io/raygan/mam-audiofinder:0.6`
+  - `docker push ghcr.io/raygan/mam-audiofinder:<version>`
   - `docker push ghcr.io/raygan/mam-audiofinder:latest`
 - Consumers update via:
   - `docker compose pull && docker compose up -d`

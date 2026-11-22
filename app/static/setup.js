@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
       qb_prefix: document.getElementById('qb_prefix')?.value.trim() || '',
       app_prefix: document.getElementById('app_prefix')?.value.trim() || '',
       lib_dir: document.getElementById('lib_dir')?.value.trim() || '',
+      ebook_ingest_dir: document.getElementById('ebook_ingest_dir')?.value.trim() || '',
     };
 
     statusEl.textContent = 'Saving…';

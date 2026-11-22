@@ -46,6 +46,8 @@ def _baseline(cx):
 MIGRATIONS = [
     (1, [_baseline]),
     (2, ["CREATE INDEX IF NOT EXISTS idx_history_mam_id ON history (mam_id)"]),
+    # Phase 1: existing rows were all audiobooks.
+    (3, ["ALTER TABLE history ADD COLUMN media_type TEXT NOT NULL DEFAULT 'audiobook'"]),
 ]
 
 
@@ -75,26 +77,41 @@ def migrate(eng=None) -> int:
 
 
 # ---------------------------- history ----------------------------
-def record_history(mam_id: str, title: str, author: str, narrator: str, dl: str, qb_hash: str | None):
+def record_history(mam_id: str, title: str, author: str, narrator: str, dl: str, qb_hash: str | None,
+                   media_type: str = "audiobook"):
     with engine.begin() as cx:
         cx.execute(text("""
-            INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at)
-            VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at)
+            INSERT INTO history (mam_id, title, author, narrator, dl, qb_status, qb_hash, added_at, media_type)
+            VALUES (:mam_id, :title, :author, :narrator, :dl, :qb_status, :qb_hash, :added_at, :media_type)
         """), {
             "mam_id": mam_id, "title": title, "author": author, "narrator": narrator,
             "dl": dl, "qb_status": "added", "qb_hash": qb_hash, "added_at": utc_now(),
+            "media_type": media_type,
         })
 
 
 def list_history(limit: int = 200) -> list[dict]:
     with engine.begin() as cx:
         rows = cx.execute(text("""
-            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status
+            SELECT id, mam_id, title, author, narrator, dl, qb_hash, added_at, qb_status, media_type
             FROM history
             ORDER BY id DESC
             LIMIT :limit
         """), {"limit": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+def history_media_type(history_id: int | None, qb_hash: str = "") -> str:
+    """media_type of a History row (by id, else by qB hash); audiobook if unknown."""
+    with engine.begin() as cx:
+        if history_id is not None:
+            v = cx.execute(text("SELECT media_type FROM history WHERE id=:id"), {"id": history_id}).scalar()
+        elif qb_hash:
+            v = cx.execute(text("SELECT media_type FROM history WHERE qb_hash=:h ORDER BY id DESC LIMIT 1"),
+                           {"h": qb_hash}).scalar()
+        else:
+            v = None
+    return v or "audiobook"
 
 
 def delete_history(row_id: int):
