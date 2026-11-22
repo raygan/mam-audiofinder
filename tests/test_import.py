@@ -20,7 +20,7 @@ def dirs(tmp_path, monkeypatch):
     lib.mkdir()
     monkeypatch.setattr(main.settings, "QB_PATH_MAP", [("/downloads", str(dl))])
     monkeypatch.setattr(main.settings, "LIB_DIR", str(lib))
-    monkeypatch.setattr(main.settings, "QB_POSTIMPORT_CATEGORY", "imported")
+    monkeypatch.setattr(main.settings, "QB_POSTIMPORT_CATEGORY_AUDIO", "imported")
     return dl, lib
 
 

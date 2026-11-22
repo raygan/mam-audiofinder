@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 import db, importer, mam, qb
-from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask
+from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
 APP_DIR = Path(__file__).resolve().parent
@@ -173,6 +173,7 @@ class AddBody(BaseModel):
     dl: str | None = None
     author: str | None = None
     narrator: str | None = None
+    media_type: str | None = None
 
 @app.post("/add")
 async def add_to_qb(body: AddBody):
@@ -182,12 +183,16 @@ async def add_to_qb(body: AddBody):
     narrator = (body.narrator or "").strip()
     dl = (body.dl or "").strip()
 
+    media_type = body.media_type or "audiobook"
+
     if not mam_id:
         # Both documented download forms need ?tid=<id>.
         raise HTTPException(status_code=400, detail="Missing MAM torrent id")
+    if media_type not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="media_type must be audiobook or ebook")
 
-    qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title)
-    db.record_history(mam_id, title, author, narrator, dl, qb_hash)
+    qb_hash = await qb.add_from_mam(mam_id, dl=dl, title=title, media_type=media_type)
+    db.record_history(mam_id, title, author, narrator, dl, qb_hash, media_type)
     return {"ok": True}
 
 # ---------------------------- History ----------------------------
@@ -202,9 +207,11 @@ def delete_history(row_id: int):
 
 # ---------------------------- List Importable ----------------------------
 @app.get("/qb/torrents")
-async def qb_torrents():
-    # completed in our category
-    return {"items": await qb.completed_torrents(settings.QB_CATEGORY)}
+async def qb_torrents(media: str = "audiobook"):
+    # completed in this media type's category
+    if media not in MEDIA_TYPES:
+        raise HTTPException(status_code=400, detail="media must be audiobook or ebook")
+    return {"items": await qb.completed_torrents(settings.qb_category(media))}
 
 # ---------------------------- Perform Import ----------------------------
 class ImportBody(BaseModel):
@@ -216,6 +223,11 @@ class ImportBody(BaseModel):
 @app.post("/import")
 async def do_import(body: ImportBody):
     h = body.hash
+    # The History row decides the importer, not the browser.
+    media_type = db.history_media_type(body.history_id, h)
+    if media_type == "ebook":
+        # Grimmory import arrives in a later 0.8 step; never send an ebook to the ABS library.
+        raise HTTPException(status_code=400, detail="Ebook import isn't available yet")
     src_root = Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
 
     # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
@@ -224,7 +236,7 @@ async def do_import(body: ImportBody):
 
     # post-import: clear or change category so it disappears from our list
     if h and settings.QB_URL:
-        await qb.set_category_best_effort(h, settings.QB_POSTIMPORT_CATEGORY)
+        await qb.set_category_best_effort(h, settings.postimport_category(media_type))
 
     db.mark_imported(body.history_id, h)
     return {"ok": True, "dest": str(dest_dir)}

@@ -95,10 +95,19 @@ class Settings:
         self.QB_USER = cfg.get("QB_USER") or os.getenv("QB_USER", "admin")
         self.QB_PASS = cfg.get("QB_PASS") or os.getenv("QB_PASS", "adminadmin")
         self.QB_SAVEPATH = cfg.get("QB_SAVEPATH") or os.getenv("QB_SAVEPATH", "")
-        self.QB_TAGS = cfg.get("QB_TAGS") or os.getenv("QB_TAGS", "MAM,audiobook")
+        # Base tags; "audiobook"/"ebook" are added per torrent (see qb_tags).
+        self.QB_TAGS = cfg.get("QB_TAGS") or os.getenv("QB_TAGS", "MAM")
 
-        self.QB_CATEGORY = cfg.get("QB_CATEGORY") or os.getenv("QB_CATEGORY", "mam-audiofinder")
-        self.QB_POSTIMPORT_CATEGORY = cfg.get("QB_POSTIMPORT_CATEGORY") or os.getenv("QB_POSTIMPORT_CATEGORY", "")
+        def pick(key, default=""):
+            return cfg.get(key) or os.getenv(key) or default
+
+        # Per-media qB categories. The *_AUDIO keys fall back to the pre-0.8
+        # QB_CATEGORY / QB_POSTIMPORT_CATEGORY so existing setups don't change.
+        self.QB_CATEGORY_AUDIO = pick("QB_CATEGORY_AUDIO", pick("QB_CATEGORY", "mam-audiofinder"))
+        self.QB_CATEGORY_EBOOK = pick("QB_CATEGORY_EBOOK", "mam-audiofinder-ebooks")
+        self.QB_POSTIMPORT_CATEGORY_AUDIO = pick("QB_POSTIMPORT_CATEGORY_AUDIO", pick("QB_POSTIMPORT_CATEGORY"))
+        self.QB_POSTIMPORT_CATEGORY_EBOOK = pick("QB_POSTIMPORT_CATEGORY_EBOOK")
+        self.QB_CATEGORY = self.QB_CATEGORY_AUDIO  # legacy name
 
         self.DL_DIR = cfg.get("DL_DIR") or os.getenv("DL_DIR", "/media/torrents")
         self.LIB_DIR = cfg.get("LIB_DIR") or os.getenv("LIB_DIR", "/media/audiobookshelf")
@@ -112,6 +121,22 @@ class Settings:
 
         self.UMASK = cfg.get("UMASK") or os.getenv("UMASK")
 
+
+    # ---- per-media helpers ----
+    def qb_category(self, media_type: str) -> str:
+        return self.QB_CATEGORY_EBOOK if media_type == "ebook" else self.QB_CATEGORY_AUDIO
+
+    def postimport_category(self, media_type: str) -> str:
+        return self.QB_POSTIMPORT_CATEGORY_EBOOK if media_type == "ebook" else self.QB_POSTIMPORT_CATEGORY_AUDIO
+
+    def qb_tags(self, media_type: str) -> list[str]:
+        """Base QB_TAGS without any media word, plus the right media tag."""
+        tags = [t.strip() for t in (self.QB_TAGS or "").split(",") if t.strip()]
+        tags = [t for t in tags if t.lower() not in MEDIA_TYPES]
+        return tags + [media_type]
+
+
+MEDIA_TYPES = ("audiobook", "ebook")
 
 settings = Settings()
 

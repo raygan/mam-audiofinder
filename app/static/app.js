@@ -260,6 +260,12 @@ async function loadHistory() {
       // buttons
       const importBtn = document.createElement('button');
       importBtn.textContent = 'Import';
+      const isEbook = h.media_type === 'ebook';
+      if (isEbook) {
+        // Grimmory import arrives in a later 0.8 step.
+        importBtn.disabled = true;
+        importBtn.title = 'Ebook import to Grimmory is coming soon';
+      }
       const rmBtn = document.createElement('button');
       rmBtn.textContent = 'Remove';
       rmBtn.addEventListener('click', async () => {
@@ -283,7 +289,7 @@ async function loadHistory() {
       });
 
       tr.innerHTML = `
-        <td>${escapeHtml(h.title || '')}</td>
+        <td>${mediaBadge(h.media_type || 'audiobook')}${escapeHtml(h.title || '')}</td>
         <td>${escapeHtml(h.author || '')}</td>
         <td>${escapeHtml(h.narrator || '')}</td>
         <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
@@ -338,7 +344,7 @@ importBtn.addEventListener('click', async () => {
 
   // load torrents in our qB category
   try {
-    const r = await fetch('/qb/torrents');
+    const r = await fetch(`/qb/torrents?media=${encodeURIComponent(h.media_type || 'audiobook')}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     sel.innerHTML = '';

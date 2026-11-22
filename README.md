@@ -70,10 +70,12 @@ This repository includes a `docker-compose.yml` for Docker users. The usual flow
 | `DL_DIR`               | In-container path for qBittorrent downloads (default `/media/torrents`)     |
 | `LIB_DIR`              | In-container path for Audiobookshelf library (default `/media/audiobookshelf`) |
 | `IMPORT_MODE`          | `link`, `copy`, or `move` (default `link`)                                  |
-| `QB_CATEGORY`          | Category assigned to new torrents (default `mam-audiofinder`)               |
-| `QB_POSTIMPORT_CATEGORY` | Category to set after import (empty = unset)                              |
+| `QB_CATEGORY_AUDIO`    | qB category for new audiobook torrents (default `mam-audiofinder`; falls back to the older `QB_CATEGORY`) |
+| `QB_CATEGORY_EBOOK`    | qB category for new ebook torrents (default `mam-audiofinder-ebooks`)       |
+| `QB_POSTIMPORT_CATEGORY_AUDIO` | Category set after an audiobook import (empty = unset; falls back to the older `QB_POSTIMPORT_CATEGORY`) |
+| `QB_POSTIMPORT_CATEGORY_EBOOK` | Category set after an ebook import (empty = unset)                  |
 | `QB_SAVEPATH`          | Optional explicit save path sent to qBittorrent when adding torrents        |
-| `QB_TAGS`              | Comma-separated list of tags applied to new torrents (default `MAM,audiobook`) |
+| `QB_TAGS`              | Comma-separated base tags for new torrents (default `MAM`). `audiobook` or `ebook` is added automatically, and those two words are ignored if listed here |
 | `QB_INNER_DL_PREFIX`   | qBittorrent’s internal download path prefix (default `/downloads`)          |
 | `QB_PATH_MAP`          | Optional env form of qB → app path mapping (`qb_prefix=app_prefix;…`)       |
 | `PUID`                 | Container user ID (for file permissions, default `99`)                      |

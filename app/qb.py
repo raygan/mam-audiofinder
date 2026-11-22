@@ -97,7 +97,7 @@ async def find_hash(c: httpx.AsyncClient, mam_id: str, title: str) -> str | None
     return arr[0].get("hash")
 
 
-async def add_from_mam(mam_id: str, dl: str = "", title: str = "") -> str | None:
+async def add_from_mam(mam_id: str, dl: str = "", title: str = "", media_type: str = "audiobook") -> str | None:
     """Add one MAM torrent to qB. Returns the qB hash if it can be found.
 
     With a dl hash, qB gets the documented cookie-less URL and fetches it
@@ -108,9 +108,8 @@ async def add_from_mam(mam_id: str, dl: str = "", title: str = "") -> str | None
         # Both documented download forms need ?tid=<id>.
         raise QbError("MAM torrent id must be numeric", status=400)
 
-    tag_list = [t.strip() for t in (settings.QB_TAGS or "").split(",") if t.strip()]
-    tag_list.append(f"mamid={mam_id}")
-    form = {"category": settings.QB_CATEGORY, "tags": ",".join(tag_list)}
+    tag_list = settings.qb_tags(media_type) + [f"mamid={mam_id}"]
+    form = {"category": settings.qb_category(media_type), "tags": ",".join(tag_list)}
     if settings.QB_SAVEPATH:
         form["savepath"] = settings.QB_SAVEPATH
 
@@ -201,7 +200,7 @@ async def set_category_best_effort(h: str, category: str):
         async with client(timeout=15) as c:
             await login(c)
             # Setting to empty string unsets the category on most qB versions.
-            # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY to that name.
+            # If your qB requires an existing category, set QB_POSTIMPORT_CATEGORY_* to that name.
             await c.post(_url("/api/v2/torrents/setCategory"), data={"hashes": h, "category": category})
     except Exception:
         pass
