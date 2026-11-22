@@ -58,6 +58,15 @@ SEARCH_FLAGS = {"dlLink", "description", "isbn", "mediaInfo", "my_snatched"}
 SRCH_IN = {"title", "author", "narrator", "series", "description", "filenames", "fileTypes", "tags"}
 # Documented: 13 AudioBooks, 14 E-Books (15/16 exist but the app doesn't use them).
 MAIN_CATS = {"13", "14"}
+CAT_MEDIA = {"13": "audiobook", "14": "ebook"}
+
+# media selector -> (main_cat, default srchIn). "both" is one request with both
+# documented categories (main_cat is a documented array).
+MEDIA_SEARCH = {
+    "audiobook": (["13"], ["title", "author", "narrator"]),
+    "ebook": (["14"], ["title", "author", "series"]),  # narrator is meaningless for ebooks
+    "both": (["13", "14"], ["title", "author", "narrator", "series"]),
+}
 SEARCH_TYPES = {"all", "active", "inactive", "fl", "fl-VIP", "VIP", "nVIP", "nMeta"}
 SORT_TYPES = {"default", "random"} | {
     f"{base}{d}"
@@ -432,6 +441,7 @@ def _detect_format(item: dict) -> str:
 
 def normalize_result(item: dict) -> dict:
     return {
+        "media_type": CAT_MEDIA.get(str(item.get("main_cat") or ""), ""),
         "id": str(item.get("id") or item.get("tid") or ""),
         "title": item.get("title") or item.get("name"),
         "author_info": _flatten(item.get("author_info")),
@@ -458,6 +468,7 @@ def clamp_perpage(v) -> int:
 async def search(
     cookie: str,
     text: str = "",
+    media: str = "audiobook",
     srch_in: list[str] | None = None,
     main_cat: list[str] | None = None,
     search_type: str = "all",
@@ -465,14 +476,21 @@ async def search(
     start_number: int = 0,
     perpage: int = 25,
 ) -> dict:
-    """One documented JSON search. Returns {"results", "total", "total_found"}."""
+    """One documented JSON search. Returns {"results", "total", "total_found"}.
+
+    `media` (audiobook | ebook | both) picks the documented main_cat and the
+    default search fields; explicit srch_in / main_cat override it.
+    """
+    if media not in MEDIA_SEARCH:
+        raise MamEndpointNotAllowed(f"unknown media type: {media!r}")
+    media_cats, media_srch_in = MEDIA_SEARCH[media]
     tor = {
         "text": text or "",
-        "srchIn": list(srch_in or ["title", "author", "narrator"]),
+        "srchIn": list(srch_in or media_srch_in),
         "searchType": search_type,
         "sortType": sort_type,
         "startNumber": str(int(start_number)),
-        "main_cat": [str(c) for c in (main_cat or ["13"])],
+        "main_cat": [str(c) for c in (main_cat or media_cats)],
     }
     # dlLink goes in the JSON body with the other top-level parameters: sent
     # as a query param (as before 0.8), MAM returned no dl field at all.

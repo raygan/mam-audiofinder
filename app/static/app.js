@@ -3,6 +3,7 @@ const form = document.getElementById('searchForm');
 const q = document.getElementById('q');
 const sortSel = document.getElementById('sort');
 const perpageSel = document.getElementById('perpage');
+const mediaSel = document.getElementById('media');
 const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
@@ -10,6 +11,23 @@ const showHistoryBtn = document.getElementById('showHistoryBtn');
 
 // Focus the search box
 if (q) q.focus();
+
+// Remember the media selector per browser (storage can be unavailable).
+const MEDIA_KEY = 'bookfinder.media';
+try {
+  const saved = localStorage.getItem(MEDIA_KEY);
+  if (mediaSel && saved && [...mediaSel.options].some(o => o.value === saved)) mediaSel.value = saved;
+} catch {}
+mediaSel?.addEventListener('change', () => {
+  try { localStorage.setItem(MEDIA_KEY, mediaSel.value); } catch {}
+});
+
+const MEDIA_BADGE = { audiobook: '🎧', ebook: '📖' };
+function mediaBadge(type) {
+  const icon = MEDIA_BADGE[type];
+  if (!icon) return '';
+  return `<span class="badge" title="${type === 'ebook' ? 'Ebook' : 'Audiobook'}">${icon}</span>`;
+}
 
 // ---------- Health check ----------
 (async () => {
@@ -45,6 +63,7 @@ async function runSearch() {
   const text = (q?.value || '').trim();
   const sortType = (sortSel?.value) || 'default';
   const perpage = parseInt(perpageSel?.value || '25', 10);
+  const media = mediaSel?.value || 'audiobook';
 
   statusEl.textContent = 'Searching…';
   table.style.display = 'none';
@@ -54,7 +73,7 @@ async function runSearch() {
     const resp = await fetch('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tor: { text, sortType }, perpage })
+      body: JSON.stringify({ tor: { text, sortType }, perpage, media })
     });
     if (!resp.ok) {
       let msg = `HTTP ${resp.status}`;
@@ -93,7 +112,8 @@ async function runSearch() {
               title: it.title || '',
               dl: it.dl || '',
               author: it.author_info || '',
-              narrator: it.narrator_info || ''
+              narrator: it.narrator_info || '',
+              media_type: it.media_type || 'audiobook'
             })
           });
           if (resp.status === 409) {
@@ -124,7 +144,7 @@ async function runSearch() {
       const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
 
       tr.innerHTML = `
-        <td>${escapeHtml(it.title || '')}</td>
+        <td>${mediaBadge(it.media_type)}${escapeHtml(it.title || '')}</td>
         <td>${escapeHtml(it.author_info || '')}</td>
         <td>${escapeHtml(it.narrator_info || '')}</td>
         <td>${escapeHtml(it.format || '')}</td>

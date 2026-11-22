@@ -53,7 +53,7 @@ async def lifespan(_app):
     mam.install_log_redaction()
     yield
 
-app = FastAPI(title="MAM Audiobook Finder", version=mam.APP_VERSION, lifespan=lifespan)
+app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
@@ -144,8 +144,8 @@ async def search(payload: dict):
     if not settings.MAM_COOKIE:
         raise HTTPException(status_code=500, detail="MAM_COOKIE not set on server")
 
-    # Only these fields are taken from the client; mam.search builds the
-    # request and the allowlist guard validates it.
+    # Only text, sortType, perpage and media are taken from the client;
+    # mam.search builds the request and the allowlist guard validates it.
     tor = payload.get("tor") or {}
     if not isinstance(tor, dict):
         raise HTTPException(status_code=400, detail="tor must be an object")
@@ -153,9 +153,14 @@ async def search(payload: dict):
     if not isinstance(text_q, str):
         raise HTTPException(status_code=400, detail="tor.text must be a string")
 
+    media = payload.get("media") or "audiobook"
+    if not isinstance(media, str) or media not in mam.MEDIA_SEARCH:
+        raise HTTPException(status_code=400, detail="media must be audiobook, ebook or both")
+
     result = await mam.search(
         settings.MAM_COOKIE,
         text=text_q,
+        media=media,
         sort_type=tor.get("sortType") or "default",
         perpage=payload.get("perpage", 25),
     )

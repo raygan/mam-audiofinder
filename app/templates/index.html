@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Audiobook Finder</title>
+  <title>Book Finder</title>
   <link rel="icon" href="/static/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
@@ -26,17 +26,23 @@
     .center { text-align: center; }
     .import-form input, .import-form select { padding:4px 6px; }
     .import-form button { padding:4px 10px; }
+    .badge { display:inline-block; margin-right:.35rem; font-size:.95em; }
   </style>
 </head>
 <body>
   <header>
-    <img src="/static/logo.png" alt="Audiobook Finder logo" class="logo" />
-    <h1>Audiobook Finder</h1>
-    <span class="muted">Download Audiobooks and Import to Audiobookshelf</span>
+    <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
+    <h1>Book Finder</h1>
+    <span class="muted">Find audiobooks and ebooks on MAM, then import them to Audiobookshelf and Grimmory</span>
   </header>
 
   <form id="searchForm" class="row">
-    <input id="q" type="text" placeholder="Search title/author/narrator" />
+    <input id="q" type="text" placeholder="Search title, author, narrator or series" />
+    <select id="media" title="What to search">
+      <option value="audiobook">Audiobooks</option>
+      <option value="ebook">Ebooks</option>
+      <option value="both">Both</option>
+    </select>
     <select id="sort">
       <option value="default">Sort: Default</option>
       <option value="seedersDesc">Seeders ↓</option>
