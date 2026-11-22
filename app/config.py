@@ -2,6 +2,7 @@
 import json, logging, os
 from typing import List, Tuple
 
+import importer
 import mam
 
 log = logging.getLogger("mam-audiofinder")
@@ -118,6 +119,13 @@ class Settings:
         raw_pm_cfg = cfg.get("QB_PATH_MAP")
         raw_pm_env = os.getenv("QB_PATH_MAP")
         self.QB_PATH_MAP = build_qb_path_map(raw_pm_cfg, raw_pm_env, self.DL_DIR, self.QB_INNER_DL_PREFIX)
+
+        # Ebooks (Grimmory). Always copied; there is deliberately no import-mode setting.
+        self.EBOOK_EXTENSIONS = importer.parse_ext_list(
+            pick("EBOOK_EXTENSIONS"), importer.DEFAULT_EBOOK_EXTENSIONS)
+        # Only decides which format is pre-selected; the user picks at import.
+        self.EBOOK_FORMAT_PREFERENCE = importer.parse_ext_list(
+            pick("EBOOK_FORMAT_PREFERENCE"), importer.DEFAULT_FORMAT_PREFERENCE)
 
         self.UMASK = cfg.get("UMASK") or os.getenv("UMASK")
 
