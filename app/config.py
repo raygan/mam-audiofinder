@@ -121,6 +121,8 @@ class Settings:
         self.QB_PATH_MAP = build_qb_path_map(raw_pm_cfg, raw_pm_env, self.DL_DIR, self.QB_INNER_DL_PREFIX)
 
         # Ebooks (Grimmory). Always copied; there is deliberately no import-mode setting.
+        # In-container path of Grimmory's ingest (BookDrop) folder.
+        self.EBOOK_INGEST_DIR = (pick("EBOOK_INGEST_DIR") or "").rstrip("/")
         self.EBOOK_EXTENSIONS = importer.parse_ext_list(
             pick("EBOOK_EXTENSIONS"), importer.DEFAULT_EBOOK_EXTENSIONS)
         # Only decides which format is pre-selected; the user picks at import.

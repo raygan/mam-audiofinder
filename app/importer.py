@@ -195,13 +195,41 @@ def copy_into_ingest(src: Path, ingest_dir: Path) -> Path:
     return final
 
 
+def ingest_dir_problem(path: str, write_test: bool = False) -> str | None:
+    """None if the ingest folder is usable, else a message for the user.
+
+    The cheap check (exists, is a folder, permission bits) runs on every
+    /health; write_test=True also creates and removes a hidden file, which
+    proves the container user (e.g. 99:100 on Unraid) can really write there.
+    """
+    if not path:
+        return "EBOOK_INGEST_DIR is not set"
+    p = Path(path)
+    if not p.exists():
+        return f"Ebook ingest folder does not exist inside the container: {path}"
+    if not p.is_dir():
+        return f"Ebook ingest path is not a folder: {path}"
+    if not os.access(p, os.W_OK | os.X_OK):
+        return f"Ebook ingest folder is not writable by this container's user (uid {os.getuid()}): {path}"
+    if write_test:
+        probe = p / f".mam-audiofinder-write-test-{os.getpid()}"
+        try:
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError as e:
+            probe.unlink(missing_ok=True)
+            return f"Cannot write to the ebook ingest folder ({e.strerror}): {path}"
+    return None
+
+
 def import_ebooks(src_root: Path, chosen: list[str], ingest_dir: str, exts=DEFAULT_EBOOK_EXTENSIONS) -> list[Path]:
     """Copy the chosen ebook files (flat) into Grimmory's ingest folder."""
     if not chosen:
         raise ImportFailed("Choose at least one file to import")
+    problem = ingest_dir_problem(ingest_dir)
+    if problem:
+        raise ImportFailed(problem, status=500)
     ingest = Path(ingest_dir)
-    if not ingest.is_dir():
-        raise ImportFailed(f"Ebook ingest folder not found: {ingest_dir}", status=500)
     # Validate every choice before copying anything.
     files = list(dict.fromkeys(_resolve_choice(src_root, rel, exts) for rel in chosen))
     return [copy_into_ingest(f, ingest) for f in files]

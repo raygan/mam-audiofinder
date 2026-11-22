@@ -23,7 +23,9 @@ def qb_adds(net):
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"ok": True}
+    j = client.get("/health").json()
+    assert j["ok"] is True
+    assert "ebook_ingest" in j
 
 
 def test_search_returns_normalized_results(net, client):

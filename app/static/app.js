@@ -35,6 +35,11 @@ function mediaBadge(type) {
     const r = await fetch('/health');
     const j = await r.json();
     document.getElementById('health').textContent = j.ok ? 'OK' : 'Not OK';
+    const warn = document.getElementById('ingestWarn');
+    if (warn && j.ebook_ingest && j.ebook_ingest !== 'ok' && j.ebook_ingest !== 'not configured') {
+      warn.textContent = `Ebook import unavailable: ${j.ebook_ingest}`;
+      warn.style.display = '';
+    }
   } catch {
     document.getElementById('health').textContent = 'Error';
   }
@@ -210,6 +215,124 @@ function makeResultRow(it) {
   return tr;
 }
 
+// ---------- Ebook import (Grimmory) ----------
+// One torrent can hold several formats of a book; the user ticks what to copy
+// (preferred format pre-ticked). Files are always copied, never linked.
+async function openEbookImport(expTd, h, tr) {
+  expTd.innerHTML = `
+    <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <span>Import to Grimmory from:</span>
+        <select class="imp-torrent" style="min-width:280px;max-width:100%;">
+          <option disabled selected>Loading torrents…</option>
+        </select>
+      </div>
+      <div class="imp-files" style="margin-top:8px;"></div>
+      <button class="imp-go" style="margin-top:8px;" disabled>Copy to Grimmory</button>
+      <div class="imp-status" style="margin-top:6px;color:#666;"></div>
+    </div>
+  `;
+  const sel   = expTd.querySelector('.imp-torrent');
+  const box   = expTd.querySelector('.imp-files');
+  const goBtn = expTd.querySelector('.imp-go');
+  const st    = expTd.querySelector('.imp-status');
+
+  const errorOf = async (r) => {
+    let msg = `HTTP ${r.status}`;
+    try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
+    return msg;
+  };
+
+  const loadChoices = async () => {
+    box.textContent = 'Loading files…';
+    goBtn.disabled = true;
+    try {
+      const r = await fetch(`/import/ebook-choices?hash=${encodeURIComponent(sel.value)}`);
+      if (!r.ok) throw new Error(await errorOf(r));
+      const books = (await r.json()).books || [];
+      box.innerHTML = '';
+      if (!books.length) { box.textContent = 'No ebook files in this torrent.'; return; }
+      books.forEach((b) => {
+        const div = document.createElement('div');
+        div.style.margin = '4px 0';
+        const name = document.createElement('div');
+        name.textContent = b.book;
+        name.style.fontWeight = '600';
+        div.appendChild(name);
+        b.files.forEach((f) => {
+          const label = document.createElement('label');
+          label.style.display = 'block';
+          label.style.marginLeft = '1rem';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = f.path;
+          cb.checked = !!f.selected;
+          cb.addEventListener('change', () => { goBtn.disabled = !box.querySelector('input:checked'); });
+          label.appendChild(cb);
+          label.append(` ${f.format.toUpperCase()} · ${formatSize(f.size)}`);
+          label.title = f.path;
+          div.appendChild(label);
+        });
+        box.appendChild(div);
+      });
+      goBtn.disabled = !box.querySelector('input:checked');
+    } catch (e) {
+      console.error(e);
+      box.textContent = `Failed to list files: ${e.message}`;
+    }
+  };
+
+  try {
+    const r = await fetch('/qb/torrents?media=ebook');
+    if (!r.ok) throw new Error(await errorOf(r));
+    const items = (await r.json()).items || [];
+    sel.innerHTML = '';
+    items.forEach((t) => {
+      const opt = document.createElement('option');
+      opt.value = t.hash;
+      opt.textContent = t.name;
+      if (h.qb_hash && t.hash === h.qb_hash) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (!items.length) {
+      sel.innerHTML = '<option disabled selected>No completed ebook torrents</option>';
+      return;
+    }
+    sel.addEventListener('change', loadChoices);
+    await loadChoices();
+  } catch (e) {
+    console.error(e);
+    sel.innerHTML = '<option disabled selected>Failed to load torrents</option>';
+    st.textContent = e.message;
+    return;
+  }
+
+  goBtn.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    const files = [...box.querySelectorAll('input:checked')].map(cb => cb.value);
+    if (!files.length) return;
+    goBtn.disabled = true;
+    st.textContent = 'Copying…';
+    try {
+      const r = await fetch('/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hash: sel.value, history_id: h.id, files })
+      });
+      if (!r.ok) throw new Error(await errorOf(r));
+      const jr = await r.json();
+      st.textContent = `Copied to Grimmory: ${(jr.files || []).join(', ')}`;
+      goBtn.textContent = 'Imported';
+      const statusTd = tr.children[5];
+      if (statusTd) statusTd.textContent = 'imported';
+    } catch (e) {
+      console.error(e);
+      st.textContent = `Failed: ${e.message}`;
+      goBtn.disabled = false;
+    }
+  });
+}
+
 // ---------- Helpers ----------
 function escapeHtml(s) {
   return (s || '').toString()
@@ -261,11 +384,6 @@ async function loadHistory() {
       const importBtn = document.createElement('button');
       importBtn.textContent = 'Import';
       const isEbook = h.media_type === 'ebook';
-      if (isEbook) {
-        // Grimmory import arrives in a later 0.8 step.
-        importBtn.disabled = true;
-        importBtn.title = 'Ebook import to Grimmory is coming soon';
-      }
       const rmBtn = document.createElement('button');
       rmBtn.textContent = 'Remove';
       rmBtn.addEventListener('click', async () => {
@@ -318,6 +436,10 @@ importBtn.addEventListener('click', async () => {
     return;
   }
   exp.style.display = '';
+  if (isEbook) {
+    await openEbookImport(expTd, h, tr);
+    return;
+  }
   expTd.innerHTML = `
     <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -352,6 +474,7 @@ importBtn.addEventListener('click', async () => {
       const opt = document.createElement('option');
       opt.value = t.hash;
       opt.textContent = `${t.name}  —  ${t.single_file ? 'single-file' : (t.root || t.name)}`;
+      if (h.qb_hash && t.hash === h.qb_hash) opt.selected = true;
       sel.appendChild(opt);
     });
     if (!sel.children.length) {

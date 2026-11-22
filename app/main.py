@@ -31,6 +31,7 @@ def setup_context(request: Request) -> dict:
         "qb_url": settings.QB_URL,
         "qb_user": settings.QB_USER,
         "lib_dir": settings.LIB_DIR,
+        "ebook_ingest_dir": settings.EBOOK_INGEST_DIR,
         "qb_prefix": qb_prefix,
         "app_prefix": app_prefix,
     }
@@ -41,6 +42,7 @@ class SetupPayload(BaseModel):
     qb_user: str | None = None
     qb_pass: str | None = None
     lib_dir: str | None = None
+    ebook_ingest_dir: str | None = None
     qb_prefix: str | None = None
     app_prefix: str | None = None
 
@@ -51,6 +53,12 @@ UPSTREAM_FAILED = qb.UPSTREAM_FAILED
 async def lifespan(_app):
     # uvicorn attaches its log handlers after import; cover those too.
     mam.install_log_redaction()
+    if settings.EBOOK_INGEST_DIR:
+        problem = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR, write_test=True)
+        if problem:
+            log.warning("Ebook import disabled: %s", problem)
+        else:
+            log.info("Ebook ingest folder OK: %s", settings.EBOOK_INGEST_DIR)
     yield
 
 app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespan)
@@ -90,7 +98,12 @@ async def mam_error_handler(request: Request, exc: mam.MamError):
 
 @app.get("/health")
 async def health():
-    return {"ok": True}
+    # "ok" stays a plain liveness flag; ebook_ingest reports the Grimmory folder.
+    if not settings.EBOOK_INGEST_DIR:
+        ingest = "not configured"
+    else:
+        ingest = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR) or "ok"
+    return {"ok": True, "ebook_ingest": ingest}
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -123,6 +136,12 @@ async def api_setup(body: SetupPayload):
         cfg["QB_PASS"] = body.qb_pass
     if body.lib_dir and body.lib_dir.strip():
         cfg["LIB_DIR"] = body.lib_dir.strip()
+    if body.ebook_ingest_dir and body.ebook_ingest_dir.strip():
+        ingest = body.ebook_ingest_dir.strip().rstrip("/") or "/"
+        problem = importer.ingest_dir_problem(ingest, write_test=True)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        cfg["EBOOK_INGEST_DIR"] = ingest
 
     if body.qb_prefix and body.qb_prefix.strip() and body.app_prefix and body.app_prefix.strip():
         qb_prefix = body.qb_prefix.strip().rstrip("/") or "/"
@@ -215,28 +234,56 @@ async def qb_torrents(media: str = "audiobook"):
 
 # ---------------------------- Perform Import ----------------------------
 class ImportBody(BaseModel):
-    author: str
-    title: str
     hash: str
     history_id: int | None = None
+    # audiobooks
+    author: str | None = None
+    title: str | None = None
+    # ebooks: relative paths from /import/ebook-choices
+    files: list[str] | None = None
+
+async def _content_root(h: str) -> Path:
+    return Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
+
+@app.get("/import/ebook-choices")
+async def ebook_choices(hash: str):
+    """Ebook files in a completed torrent, grouped by book, preferred format pre-selected."""
+    src_root = await _content_root(hash)
+    books = await run_in_threadpool(
+        importer.ebook_choices, src_root, settings.EBOOK_EXTENSIONS, settings.EBOOK_FORMAT_PREFERENCE)
+    return {"books": books}
 
 @app.post("/import")
 async def do_import(body: ImportBody):
     h = body.hash
     # The History row decides the importer, not the browser.
     media_type = db.history_media_type(body.history_id, h)
-    if media_type == "ebook":
-        # Grimmory import arrives in a later 0.8 step; never send an ebook to the ABS library.
-        raise HTTPException(status_code=400, detail="Ebook import isn't available yet")
-    src_root = Path(importer.map_qb_path(await qb.content_path(h), settings.QB_PATH_MAP))
 
-    # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
-    dest_dir = await run_in_threadpool(
-        importer.import_audiobook, src_root, body.author, body.title, settings.LIB_DIR, settings.IMPORT_MODE)
+    if media_type == "ebook":
+        problem = importer.ingest_dir_problem(settings.EBOOK_INGEST_DIR)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        if not body.files:
+            raise HTTPException(status_code=400, detail="Choose at least one file to import")
+        src_root = await _content_root(h)
+        # Copy only (never link/move); flat into Grimmory's ingest folder.
+        copied = await run_in_threadpool(
+            importer.import_ebooks, src_root, body.files, settings.EBOOK_INGEST_DIR, settings.EBOOK_EXTENSIONS)
+        dest = settings.EBOOK_INGEST_DIR
+        result = {"files": [p.name for p in copied]}
+    else:
+        author, title = (body.author or "").strip(), (body.title or "").strip()
+        if not author or not title:
+            raise HTTPException(status_code=400, detail="Author and title are required")
+        src_root = await _content_root(h)
+        # Destination: /library/Author/Title[/...]; file copying runs off the event loop.
+        dest = await run_in_threadpool(
+            importer.import_audiobook, src_root, author, title, settings.LIB_DIR, settings.IMPORT_MODE)
+        result = {}
 
     # post-import: clear or change category so it disappears from our list
     if h and settings.QB_URL:
         await qb.set_category_best_effort(h, settings.postimport_category(media_type))
 
     db.mark_imported(body.history_id, h)
-    return {"ok": True, "dest": str(dest_dir)}
+    return {"ok": True, "dest": str(dest), **result}

@@ -82,6 +82,12 @@
       </div>
 
       <div class="row">
+        <label for="ebook_ingest_dir">Grimmory ingest (BookDrop) folder (inside this container)</label>
+        <input id="ebook_ingest_dir" name="ebook_ingest_dir" type="text" value="{{ ebook_ingest_dir }}" placeholder="/media/Books/eBooks/bookdrop" />
+        <small>Optional. Where ebooks are copied for Grimmory to pick up, e.g. <code>/media/Books/eBooks/bookdrop</code>. Ebooks are always copied (never hardlinked), so Grimmory can't damage the seeding torrent. The folder must already exist and be writable by this container's user.</small>
+      </div>
+
+      <div class="row">
         <button type="submit">Save setup</button>
         <span id="setupStatus" class="muted"></span>
       </div>

@@ -114,13 +114,14 @@ def test_qb_torrents_rejects_unknown_media(net, client):
 
 
 # ---------------- /import routing ----------------
-def test_ebook_rows_cannot_be_imported_yet(net, client):
+def test_ebook_import_refused_when_ingest_not_configured(net, client, monkeypatch):
+    monkeypatch.setattr(main.settings, "EBOOK_INGEST_DIR", "")
     with db.engine.begin() as cx:
         hid = cx.execute(text("INSERT INTO history (mam_id, title, qb_hash, qb_status, media_type) "
                               "VALUES ('9','E','ebhash','added','ebook')")).lastrowid
-    r = client.post("/import", json={"author": "A", "title": "E", "hash": "ebhash", "history_id": hid})
-    assert r.status_code == 400
-    assert net.requests == []  # not even qB is asked
+    r = client.post("/import", json={"hash": "ebhash", "history_id": hid, "files": ["x.epub"]})
+    assert r.status_code == 400 and "EBOOK_INGEST_DIR" in r.json()["detail"]
+    assert net.requests == []  # never falls through to the audiobook importer
 
 
 def test_history_media_type_lookup():
