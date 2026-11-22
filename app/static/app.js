@@ -8,7 +8,7 @@ const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
 const showHistoryBtn = document.getElementById('showHistoryBtn');
-const saveWishBtn = document.getElementById('saveWishBtn');
+const resultsFooter = document.getElementById('resultsFooter');
 
 // The last search that ran, so saving it can record what's already on screen.
 let lastSearch = null;
@@ -71,6 +71,8 @@ async function runSearch() {
   statusEl.textContent = 'Searching…';
   table.style.display = 'none';
   tbody.innerHTML = '';
+  resultsFooter.style.display = 'none';
+  resultsFooter.innerHTML = '';
 
   try {
     const resp = await fetch('/search', {
@@ -93,13 +95,8 @@ async function runSearch() {
     if (!rows.length) {
       // One tap to remember this search for later.
       statusEl.textContent = 'No results. ';
-      const big = document.createElement('button');
-      big.type = 'button';
-      big.className = 'save-big';
-      big.textContent = '☆ Save to wishlist';
-      big.addEventListener('click', () => saveToWishlist(big));
       statusEl.appendChild(document.createElement('br'));
-      statusEl.appendChild(big);
+      statusEl.appendChild(saveWishlistButton(statusEl));
       return;
     }
 
@@ -142,6 +139,11 @@ async function runSearch() {
     });
 
     table.style.display = '';
+    // Same save button under the results, for "keep watching for more versions".
+    const footerMsg = document.createElement('div');
+    footerMsg.className = 'muted';
+    resultsFooter.append(saveWishlistButton(footerMsg), footerMsg);
+    resultsFooter.style.display = '';
     statusEl.textContent = groups.size === rows.length
       ? `${rows.length} results shown`
       : `${rows.length} results shown (${groups.size} books)`;
@@ -531,9 +533,19 @@ importBtn.addEventListener('click', async () => {
 // ---------- Wishlist ----------
 // Saving never searches MAM: the results already on screen (if this is the
 // search that produced them) become the baseline, so only later uploads count.
-async function saveToWishlist(btn) {
+function saveWishlistButton(msgEl) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'save-big';
+  b.textContent = '☆ Save to wishlist';
+  b.title = 'Save this search and re-check it later for new uploads';
+  b.addEventListener('click', () => saveToWishlist(b, msgEl));
+  return b;
+}
+
+async function saveToWishlist(btn, msgEl = statusEl) {
   const text = (q?.value || '').trim();
-  if (!text) { statusEl.textContent = 'Type a search to save first.'; return; }
+  if (!text) { msgEl.textContent = 'Type a search to save first.'; return; }
   const media = mediaSel?.value || 'audiobook';
   const sortType = sortSel?.value || 'default';
   const same = lastSearch && lastSearch.text === text && lastSearch.media === media;
@@ -545,20 +557,19 @@ async function saveToWishlist(btn) {
       body: JSON.stringify({ query: text, media, sort_type: sortType, seen: same ? lastSearch.ids : [] })
     });
     if (!r.ok) throw new Error(await errorOf(r));
-    statusEl.textContent = `Saved “${text}” to the wishlist. `;
+    msgEl.textContent = `Saved “${text}” to the wishlist. `;
     const a = document.createElement('a');
     a.href = '/wishlist/view';
     a.textContent = 'Open wishlist';
-    statusEl.appendChild(a);
+    msgEl.appendChild(a);
     loadWishSummary();
   } catch (e) {
     console.error(e);
-    statusEl.textContent = `Couldn't save to wishlist: ${e.message}`;
+    msgEl.textContent = `Couldn't save to wishlist: ${e.message}`;
     if (btn) btn.disabled = false;
   }
 }
 
-saveWishBtn?.addEventListener('click', () => saveToWishlist(null));
 
 // Header indicator: unreviewed wishlist matches (reads the app's own DB only).
 async function loadWishSummary() {

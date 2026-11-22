@@ -296,7 +296,8 @@ def test_wishlist_page_and_assets(net, client):
     assert "/static/common.js?v=" in page.text and "/static/wishlist.js?v=" in page.text
     assert client.get("/static/wishlist.js").status_code == 200
     home = client.get("/").text
-    assert 'href="/wishlist/view"' in home and 'id="saveWishBtn"' in home
+    assert 'href="/wishlist/view"' in home and 'id="resultsFooter"' in home
+    assert 'id="saveWishBtn"' not in home  # no always-visible save button
     assert home.index("/static/common.js") < home.index("/static/app.js")  # helpers load first
     assert net.requests == []
 
