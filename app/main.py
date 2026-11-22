@@ -238,6 +238,20 @@ class WishlistCreate(BaseModel):
     check_interval_hours: int | None = None
     seen: list[str | int] | None = None  # MAM ids already on screen (baseline)
 
+@app.get("/wishlist/view", response_class=HTMLResponse)
+async def wishlist_page(request: Request):
+    return templates.TemplateResponse(request, "wishlist.html", {"request": request})
+
+@app.get("/wishlist/summary")
+def wishlist_summary():
+    """For the search page's header indicator. Database only; never contacts MAM."""
+    return {
+        "unreviewed": wishlist.unreviewed_match_count(),
+        "items": len(wishlist.list_items()),
+        # The scheduler arrives in a later 0.9 step; nothing runs until then.
+        "scheduler": "disabled",
+    }
+
 @app.get("/wishlist")
 def wishlist_list():
     return {

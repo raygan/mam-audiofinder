@@ -8,6 +8,10 @@ const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
 const showHistoryBtn = document.getElementById('showHistoryBtn');
+const saveWishBtn = document.getElementById('saveWishBtn');
+
+// The last search that ran, so saving it can record what's already on screen.
+let lastSearch = null;
 
 // Focus the search box
 if (q) q.focus();
@@ -22,12 +26,6 @@ mediaSel?.addEventListener('change', () => {
   try { localStorage.setItem(MEDIA_KEY, mediaSel.value); } catch {}
 });
 
-const MEDIA_BADGE = { audiobook: '🎧', ebook: '📖' };
-function mediaBadge(type) {
-  const icon = MEDIA_BADGE[type];
-  if (!icon) return '';
-  return `<span class="badge" title="${type === 'ebook' ? 'Ebook' : 'Audiobook'}">${icon}</span>`;
-}
 
 // ---------- Health check ----------
 (async () => {
@@ -91,8 +89,17 @@ async function runSearch() {
     const data = await resp.json();
 
     const rows = data.results || [];
+    lastSearch = { text, media, sortType, ids: rows.map(r => r.id).filter(Boolean) };
     if (!rows.length) {
-      statusEl.textContent = 'No results.';
+      // One tap to remember this search for later.
+      statusEl.textContent = 'No results. ';
+      const big = document.createElement('button');
+      big.type = 'button';
+      big.className = 'save-big';
+      big.textContent = '☆ Save to wishlist';
+      big.addEventListener('click', () => saveToWishlist(big));
+      statusEl.appendChild(document.createElement('br'));
+      statusEl.appendChild(big);
       return;
     }
 
@@ -237,12 +244,6 @@ async function openEbookImport(expTd, h, tr, close) {
   const goBtn = expTd.querySelector('.imp-go');
   const st    = expTd.querySelector('.imp-status');
 
-  const errorOf = async (r) => {
-    let msg = `HTTP ${r.status}`;
-    try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
-    return msg;
-  };
-
   const loadChoices = async () => {
     box.textContent = 'Loading files…';
     goBtn.disabled = true;
@@ -331,24 +332,6 @@ async function openEbookImport(expTd, h, tr, close) {
       goBtn.disabled = false;
     }
   });
-}
-
-// ---------- Helpers ----------
-function escapeHtml(s) {
-  return (s || '').toString()
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-}
-
-function formatSize(sz) {
-  if (sz == null || sz === '') return '';
-  const n = Number(sz);
-  if (!Number.isFinite(n)) return String(sz);
-  const units = ['B','KB','MB','GB','TB'];
-  let i = 0, x = n;
-  while (x >= 1024 && i < units.length - 1) { x /= 1024; i++; }
-  return `${x.toFixed(1)} ${units[i]}`;
 }
 
 async function loadHistory() {
@@ -545,3 +528,50 @@ importBtn.addEventListener('click', async () => {
     console.error('history load failed', e);
   }
 }
+// ---------- Wishlist ----------
+// Saving never searches MAM: the results already on screen (if this is the
+// search that produced them) become the baseline, so only later uploads count.
+async function saveToWishlist(btn) {
+  const text = (q?.value || '').trim();
+  if (!text) { statusEl.textContent = 'Type a search to save first.'; return; }
+  const media = mediaSel?.value || 'audiobook';
+  const sortType = sortSel?.value || 'default';
+  const same = lastSearch && lastSearch.text === text && lastSearch.media === media;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/wishlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, media, sort_type: sortType, seen: same ? lastSearch.ids : [] })
+    });
+    if (!r.ok) throw new Error(await errorOf(r));
+    statusEl.textContent = `Saved “${text}” to the wishlist. `;
+    const a = document.createElement('a');
+    a.href = '/wishlist/view';
+    a.textContent = 'Open wishlist';
+    statusEl.appendChild(a);
+    loadWishSummary();
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = `Couldn't save to wishlist: ${e.message}`;
+    if (btn) btn.disabled = false;
+  }
+}
+
+saveWishBtn?.addEventListener('click', () => saveToWishlist(null));
+
+// Header indicator: unreviewed wishlist matches (reads the app's own DB only).
+async function loadWishSummary() {
+  const badge = document.getElementById('wishBadge');
+  const link = document.getElementById('wishLink');
+  if (!badge || !link) return;
+  try {
+    const r = await fetch('/wishlist/summary');
+    if (!r.ok) return;
+    const j = await r.json();
+    badge.textContent = j.unreviewed ? `${j.unreviewed} new` : '';
+    badge.style.display = j.unreviewed ? '' : 'none';
+    link.title = `Saved searches · scheduler ${j.scheduler}`;
+  } catch {}
+}
+loadWishSummary();

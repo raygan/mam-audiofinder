@@ -287,3 +287,27 @@ def test_migration_4_creates_tables(tmp_path):
     with eng.begin() as cx:
         names = {r[0] for r in cx.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
     assert {"wishlist", "wishlist_seen", "app_state", "mam_request_log"} <= names
+
+
+# ---------------- step 2: pages ----------------
+def test_wishlist_page_and_assets(net, client):
+    page = client.get("/wishlist/view")
+    assert page.status_code == 200 and "Wishlist" in page.text
+    assert "/static/common.js?v=" in page.text and "/static/wishlist.js?v=" in page.text
+    assert client.get("/static/wishlist.js").status_code == 200
+    home = client.get("/").text
+    assert 'href="/wishlist/view"' in home and 'id="saveWishBtn"' in home
+    assert home.index("/static/common.js") < home.index("/static/app.js")  # helpers load first
+    assert net.requests == []
+
+
+def test_summary_counts_unreviewed_and_never_calls_mam(net, client):
+    item = wishlist.create("wanted book", media="ebook")
+    mam_returns(net, [tor(902001), tor(902002)])
+    check(item["id"])
+    before = len(net.mam_requests)
+    s = client.get("/wishlist/summary").json()
+    assert s == {"unreviewed": 2, "items": 1, "scheduler": "disabled"}
+    wishlist.dismiss(item["id"], "902001")
+    assert client.get("/wishlist/summary").json()["unreviewed"] == 1
+    assert len(net.mam_requests) == before
