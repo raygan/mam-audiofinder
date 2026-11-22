@@ -11,6 +11,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks and eb
 - **Search MAM** for audiobooks, ebooks, or both, by title, author, narrator or series  
 - **Versions grouped by book**: the same book's m4b/mp3 or epub/pdf uploads share one row, so you pick the one you want (audiobooks with different narrators stay separate)  
 - **One-click add to qBittorrent**, with separate categories and tags for audiobooks and ebooks  
+- **Wishlist** of saved searches: re-check them with one tap (or, if you turn it on, automatically every few days), review new uploads, and get an ntfy notification when something new matches  
 - **History view** of all books you've added  
 - **Inline import tool**: audiobooks are copied or hard-linked into your Audiobookshelf library; ebooks are copied into your ebook library's import folder, and you choose which formats  
 - Minimal, fast UI that works on desktop and mobile
@@ -56,6 +57,30 @@ This repository includes a `docker-compose.yml` for Docker users. The usual flow
    docker compose up -d
    ```
 5. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port). On first run, you should land on `/setup` to configure MAM, qBittorrent, and library paths.
+
+## Wishlist
+
+A search that finds nothing today doesn't have to be lost. Save it, and the app can check it again later and tell you when a new upload matches.
+
+- **Saving:** run a search, then press **☆ Save to wishlist** (under the results, or on "No results"). Saving doesn't contact MAM. The results already on screen count as seen, so only later uploads are reported.
+- **Checking:** on the **Wishlist** page (link at the top of the search page), **Check now** runs one normal MAM search for that item, limited to torrents uploaded since you saved it.
+- **What counts as a new match:** a result you haven't seen for that item, that isn't already in your History, and that MAM doesn't mark as snatched by you. Optional per-item filters (formats, minimum seeders, words to exclude, language) narrow it further.
+- **Reviewing:** matches are listed under each item with **Add** and **Dismiss**. Adding a match marks the item done. For an item saved with **Both**, it's done once you've added both an audiobook and an ebook.
+- **Notifications:** set a notification URL on the Setup page (ntfy by default, or a generic JSON webhook) to be told about new matches. Notifications never include your cookie or download links.
+- **Tip:** MAM's search understands alternatives, so a saved search like `warlock (5|five)` catches both spellings.
+
+### Automatic re-checks (off by default)
+
+The scheduler re-checks saved searches for you. **It's off until you set `WISHLIST_SCHEDULER_ENABLED=true`.** Automating anything on MAM is your responsibility under rule 1.7, so read it first, and consider asking MAM staff what frequency they're comfortable with. When it's on, it stays conservative:
+
+- one MAM search at a time, with a random 30–90 second gap between searches (never less than 30);
+- each item checked about every 3 days (`WISHLIST_INTERVAL_HOURS`, with some random jitter);
+- at most 20 wishlist searches per rolling 24 hours (`WISHLIST_MAX_REQUESTS_PER_DAY`), counting your manual **Check now** presses;
+- on any problem from MAM (cookie rejected, rate limited, anything unexpected), it **stops all automatic checks**, notifies you once, and waits for you to press **Resume** on the Wishlist page. Nothing is retried.
+
+Per item, **When found** can be set to **Auto-grab**: a scheduled check then adds the best new match (your preferred format first, then most seeders) to qBittorrent and notifies you. The default is **Notify me**, because auto-grabbing spends ratio without you deciding.
+
+The scheduler runs inside the app, so run a **single** app process. The provided Dockerfile already does.
 
 ## Ebooks
 

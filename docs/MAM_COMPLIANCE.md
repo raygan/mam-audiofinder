@@ -4,7 +4,7 @@ Maps each rule in the "MAM rules come first" section of `docs/ROADMAP.md` to whe
 
 Run the checks: `.venv/bin/python -m pytest -q` (see `DEV_NOTES.md`). No test touches the network. `tests/conftest.py` routes every httpx client through a mock, and any unexpected MAM request fails the test.
 
-Last updated: Phase 1 (v0.8.0). Phase 1 adds no MAM endpoints or parameters: ebooks use the same documented search with `main_cat` 14 and the same download endpoint. Grouping and the ebook importer are local only. Since Phase 0b, `qb.py` reaches MAM only through `mam.build_dl_url()` / `mam.fetch_torrent()`, and no other module imports httpx for MAM.
+Last updated: Phase 2 (v0.9.0). Phase 2 adds no MAM endpoints or parameters: the wishlist re-uses the documented search with documented keys only (`startDate`, `searchType`, `perpage`). Earlier: Phase 1 adds no MAM endpoints or parameters: ebooks use the same documented search with `main_cat` 14 and the same download endpoint. Grouping and the ebook importer are local only. Since Phase 0b, `qb.py` reaches MAM only through `mam.build_dl_url()` / `mam.fetch_torrent()`, and no other module imports httpx for MAM.
 
 | # | Rule | Enforced in | Tests |
 |---|---|---|---|

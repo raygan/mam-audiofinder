@@ -16,7 +16,10 @@
   - `mam.py`: **the only module that talks to MyAnonamouse** (allowlist guard, see the compliance section above).
   - `qb.py`: the qBittorrent WebUI API, including `add_from_mam()`, which routes and the future scheduler share. It raises `QbError`/`QbDuplicate`, never HTTP errors.
   - `importer.py`: local file import (no network). Audiobooks go to `LIB_DIR`; ebooks are always copied (never linked) into `EBOOK_INGEST_DIR`.
-  - Phase 2 adds `wishlist.py` and `scheduler.py`.
+  - `wishlist.py`: saved searches, match rules, the daily cap and the single-in-flight lock. Every wishlist MAM search goes through `wishlist.check()`.
+  - `scheduler.py`: the opt-in background re-check loop (off by default). It must fail closed (halt and notify once) on any MAM error.
+  - `notify.py`: outgoing notifications (ntfy or a JSON webhook). Never to MAM; never the cookie or download links.
+  - The app must run as a **single worker** (the scheduler is one in-process task).
 - HTML templates are in `app/templates/` (`index.html`, `setup.html`).
 - Static assets (JS, icons, screenshots) are in `app/static/`.
 - Container and environment setup: `Dockerfile`, `docker-compose.yml`, `env.example`.
