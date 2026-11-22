@@ -144,6 +144,9 @@ import pytest
     (httpx.Response(200, json={"success_count": 0, "failure_count": 0, "pending_count": 1}), True),
     (httpx.Response(200, json={"success_count": 0, "failure_count": 1, "pending_count": 0}), False),
     (httpx.Response(415, text="Torrent file is not valid"), False),
+    # Real reply from Raygan's qB (2026-11-21) to a URL add:
+    (httpx.Response(202, json={"added_torrent_ids": [], "failure_count": 0, "pending_count": 1, "success_count": 0}), True),
+    (httpx.Response(202, json={"added_torrent_ids": [], "failure_count": 1, "pending_count": 0, "success_count": 0}), False),
 ])
 def test_qb_add_reply_parsing(reply, ok):
     assert qb.add_ok(reply) is ok

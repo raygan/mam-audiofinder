@@ -47,8 +47,9 @@ def login_ok(r: httpx.Response) -> bool:
 
 
 def add_ok(r: httpx.Response) -> bool:
-    """qB < 5.x replies 'Ok.' / 'Fails.'; newer versions reply with JSON counts."""
-    if r.status_code != 200:
+    """qB < 5.x replies 200 'Ok.' / 'Fails.'. Newer versions reply with JSON
+    counts, and 202 Accepted when a URL add is still pending (qB fetches it)."""
+    if r.status_code not in (200, 202):
         return False
     body = (r.text or "").strip()
     if body == "Fails.":
