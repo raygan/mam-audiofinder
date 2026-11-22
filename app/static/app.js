@@ -8,6 +8,10 @@ const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
 const showHistoryBtn = document.getElementById('showHistoryBtn');
+const resultsFooter = document.getElementById('resultsFooter');
+
+// The last search that ran, so saving it can record what's already on screen.
+let lastSearch = null;
 
 // Focus the search box
 if (q) q.focus();
@@ -22,12 +26,6 @@ mediaSel?.addEventListener('change', () => {
   try { localStorage.setItem(MEDIA_KEY, mediaSel.value); } catch {}
 });
 
-const MEDIA_BADGE = { audiobook: '🎧', ebook: '📖' };
-function mediaBadge(type) {
-  const icon = MEDIA_BADGE[type];
-  if (!icon) return '';
-  return `<span class="badge" title="${type === 'ebook' ? 'Ebook' : 'Audiobook'}">${icon}</span>`;
-}
 
 // ---------- Health check ----------
 (async () => {
@@ -73,6 +71,8 @@ async function runSearch() {
   statusEl.textContent = 'Searching…';
   table.style.display = 'none';
   tbody.innerHTML = '';
+  resultsFooter.style.display = 'none';
+  resultsFooter.innerHTML = '';
 
   try {
     const resp = await fetch('/search', {
@@ -91,8 +91,12 @@ async function runSearch() {
     const data = await resp.json();
 
     const rows = data.results || [];
+    lastSearch = { text, media, sortType, ids: rows.map(r => r.id).filter(Boolean) };
     if (!rows.length) {
-      statusEl.textContent = 'No results.';
+      // One tap to remember this search for later.
+      statusEl.textContent = 'No results. ';
+      statusEl.appendChild(document.createElement('br'));
+      statusEl.appendChild(saveWishlistButton(statusEl));
       return;
     }
 
@@ -135,6 +139,11 @@ async function runSearch() {
     });
 
     table.style.display = '';
+    // Same save button under the results, for "keep watching for more versions".
+    const footerMsg = document.createElement('div');
+    footerMsg.className = 'muted';
+    resultsFooter.append(saveWishlistButton(footerMsg), footerMsg);
+    resultsFooter.style.display = '';
     statusEl.textContent = groups.size === rows.length
       ? `${rows.length} results shown`
       : `${rows.length} results shown (${groups.size} books)`;
@@ -237,12 +246,6 @@ async function openEbookImport(expTd, h, tr, close) {
   const goBtn = expTd.querySelector('.imp-go');
   const st    = expTd.querySelector('.imp-status');
 
-  const errorOf = async (r) => {
-    let msg = `HTTP ${r.status}`;
-    try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
-    return msg;
-  };
-
   const loadChoices = async () => {
     box.textContent = 'Loading files…';
     goBtn.disabled = true;
@@ -331,24 +334,6 @@ async function openEbookImport(expTd, h, tr, close) {
       goBtn.disabled = false;
     }
   });
-}
-
-// ---------- Helpers ----------
-function escapeHtml(s) {
-  return (s || '').toString()
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-}
-
-function formatSize(sz) {
-  if (sz == null || sz === '') return '';
-  const n = Number(sz);
-  if (!Number.isFinite(n)) return String(sz);
-  const units = ['B','KB','MB','GB','TB'];
-  let i = 0, x = n;
-  while (x >= 1024 && i < units.length - 1) { x /= 1024; i++; }
-  return `${x.toFixed(1)} ${units[i]}`;
 }
 
 async function loadHistory() {
@@ -545,3 +530,62 @@ importBtn.addEventListener('click', async () => {
     console.error('history load failed', e);
   }
 }
+// ---------- Wishlist ----------
+// Saving never searches MAM: the results already on screen (if this is the
+// search that produced them) become the baseline, so only later uploads count.
+function saveWishlistButton(msgEl) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'save-big';
+  b.textContent = '☆ Save to wishlist';
+  b.title = 'Save this search and re-check it later for new uploads';
+  b.addEventListener('click', () => saveToWishlist(b, msgEl));
+  return b;
+}
+
+async function saveToWishlist(btn, msgEl = statusEl) {
+  const text = (q?.value || '').trim();
+  if (!text) { msgEl.textContent = 'Type a search to save first.'; return; }
+  const media = mediaSel?.value || 'audiobook';
+  const sortType = sortSel?.value || 'default';
+  const same = lastSearch && lastSearch.text === text && lastSearch.media === media;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/wishlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, media, sort_type: sortType, seen: same ? lastSearch.ids : [] })
+    });
+    if (!r.ok) throw new Error(await errorOf(r));
+    msgEl.textContent = `Saved “${text}” to the wishlist. `;
+    const a = document.createElement('a');
+    a.href = '/wishlist/view';
+    a.textContent = 'Open wishlist';
+    msgEl.appendChild(a);
+    loadWishSummary();
+  } catch (e) {
+    console.error(e);
+    msgEl.textContent = `Couldn't save to wishlist: ${e.message}`;
+    if (btn) btn.disabled = false;
+  }
+}
+
+
+// Header indicator: unreviewed wishlist matches (reads the app's own DB only).
+async function loadWishSummary() {
+  const badge = document.getElementById('wishBadge');
+  const link = document.getElementById('wishLink');
+  if (!badge || !link) return;
+  try {
+    const r = await fetch('/wishlist/summary');
+    if (!r.ok) return;
+    const j = await r.json();
+    const halted = j.scheduler === 'halted';
+    badge.textContent = halted ? 'halted' : (j.unreviewed ? `${j.unreviewed} new` : '');
+    badge.style.display = halted || j.unreviewed ? '' : 'none';
+    badge.style.background = halted ? '#c33' : '';
+    badge.style.color = halted ? '#fff' : '';
+    link.title = `Saved searches · scheduler ${j.scheduler}`;
+  } catch {}
+}
+loadWishSummary();

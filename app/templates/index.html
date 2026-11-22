@@ -27,6 +27,9 @@
     .import-form input, .import-form select { padding:4px 6px; }
     .import-form button { padding:4px 10px; }
     .badge { display:inline-block; margin-right:.35rem; font-size:.95em; }
+    .navlink { margin-left:auto; white-space:nowrap; }
+    .count { margin-left:.35rem; padding:0 .45rem; border-radius:999px; background:#f5c518; color:#000; font-size:.85rem; }
+    .save-big { margin-top:.5rem; padding:.8rem 1.2rem; font-size:1rem; }
     .versions-toggle { margin-top:.3rem; padding:2px 8px; font-size:.85rem; }
     tr.version td { background:#fafafa; }
     tr.version td:first-child { padding-left:1.5rem; }
@@ -37,6 +40,7 @@
     <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
     <h1>Book Finder</h1>
     <span class="muted">Find audiobooks and ebooks on MAM, then import them to Audiobookshelf and your ebook library</span>
+    <a id="wishLink" class="navlink" href="/wishlist/view" title="Saved searches">Wishlist<span id="wishBadge" class="count" style="display:none"></span></a>
   </header>
 
   <form id="searchForm" class="row">
@@ -78,6 +82,7 @@
 		</thead>
       <tbody></tbody>
     </table>
+    <div id="resultsFooter" style="display:none"></div>
     
     <div id="historyCard" class="card" style="margin-top:1rem; display:none">
       <h3 style="margin:0 0 .5rem 0; font-size:1.1rem;">History</h3>
@@ -110,6 +115,7 @@
   </div>
   {% endif %}
 
+  <script src="/static/common.js?v={{ asset_version }}" defer></script>
   <script src="/static/app.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

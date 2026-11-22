@@ -11,6 +11,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks and eb
 - **Search MAM** for audiobooks, ebooks, or both, by title, author, narrator or series  
 - **Versions grouped by book**: the same book's m4b/mp3 or epub/pdf uploads share one row, so you pick the one you want (audiobooks with different narrators stay separate)  
 - **One-click add to qBittorrent**, with separate categories and tags for audiobooks and ebooks  
+- **Wishlist** of saved searches: re-check them with one tap (or, if you turn it on, automatically every few days), review new uploads, and get an ntfy notification when something new matches  
 - **History view** of all books you've added  
 - **Inline import tool**: audiobooks are copied or hard-linked into your Audiobookshelf library; ebooks are copied into your ebook library's import folder, and you choose which formats  
 - Minimal, fast UI that works on desktop and mobile
@@ -57,6 +58,30 @@ This repository includes a `docker-compose.yml` for Docker users. The usual flow
    ```
 5. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port). On first run, you should land on `/setup` to configure MAM, qBittorrent, and library paths.
 
+## Wishlist
+
+A search that finds nothing today doesn't have to be lost. Save it, and the app can check it again later and tell you when a new upload matches.
+
+- **Saving:** run a search, then press **☆ Save to wishlist** (under the results, or on "No results"). Saving doesn't contact MAM. The results already on screen count as seen, so only later uploads are reported.
+- **Checking:** on the **Wishlist** page (link at the top of the search page), **Check now** runs one normal MAM search for that item, limited to torrents uploaded since you saved it.
+- **What counts as a new match:** a result you haven't seen for that item, that isn't already in your History, and that MAM doesn't mark as snatched by you. Optional per-item filters (formats, minimum seeders, words to exclude, language) narrow it further.
+- **Reviewing:** matches are listed under each item with **Add** and **Dismiss**. Adding a match marks the item done. For an item saved with **Both**, it's done once you've added both an audiobook and an ebook.
+- **Notifications:** set a notification URL on the Setup page (ntfy by default, or a generic JSON webhook) to be told about new matches. Notifications never include your cookie or download links.
+- **Tip:** MAM's search understands alternatives, so a saved search like `warlock (5|five)` catches both spellings.
+
+### Automatic re-checks (off by default)
+
+The scheduler re-checks saved searches for you. **It's off until you set `WISHLIST_SCHEDULER_ENABLED=true`.** Automating anything on MAM is your responsibility under rule 1.7, so read it first, and consider asking MAM staff what frequency they're comfortable with. When it's on, it stays conservative:
+
+- one MAM search at a time, with a random 30–90 second gap between searches (never less than 30);
+- each item checked about every 3 days (`WISHLIST_INTERVAL_HOURS`, with some random jitter);
+- at most 20 wishlist searches per rolling 24 hours (`WISHLIST_MAX_REQUESTS_PER_DAY`), counting your manual **Check now** presses;
+- on any problem from MAM (cookie rejected, rate limited, anything unexpected), it **stops all automatic checks**, notifies you once, and waits for you to press **Resume** on the Wishlist page. Nothing is retried.
+
+Per item, **When found** can be set to **Auto-grab**: a scheduled check then adds the best new match (your preferred format first, then most seeders) to qBittorrent and notifies you. The default is **Notify me**, because auto-grabbing spends ratio without you deciding.
+
+The scheduler runs inside the app, so run a **single** app process. The provided Dockerfile already does.
+
 ## Ebooks
 
 Most ebook servers can watch an import folder and add whatever appears there. Ebook import copies the files you choose into that folder. Your ebook server picks them up and handles metadata and organisation, so the app doesn't create Author/Title folders for ebooks.
@@ -93,6 +118,16 @@ How ebook import works:
 | `IMPORT_MODE`          | Audiobooks only: `link`, `copy`, or `move` (default `link`). See the hardlink note above. Ebooks are always copied |
 | `EBOOK_INGEST_DIR`     | In-container path of your ebook library's import folder, e.g. `/media/books/import`. Ebook import is unavailable until set |
 | `EBOOK_FORMAT_PREFERENCE` | Which ebook format is pre-ticked at import (default `epub,azw3,mobi,pdf`); you can still tick any format |
+| `NOTIFY_WEBHOOK_URL`   | Where to send notifications: your ntfy topic URL (e.g. `https://ntfy.example.com/books`) or another webhook. Empty = none. Never receives your cookie or download links |
+| `NOTIFY_FORMAT`        | `ntfy` (default) or `json` (generic webhook, e.g. Home Assistant) |
+| `NOTIFY_TOKEN`         | Optional ntfy access token (sent as a Bearer token) |
+| `NOTIFY_CLICK_URL`     | Optional link opened when a notification is tapped, e.g. this app's `/wishlist/view` |
+| `NOTIFY_ON_IMPORT`     | Also notify when an import finishes (default `false`) |
+| `NOTIFY_BODY_TEMPLATE` | `json` format only: custom body using `{{event}}`, `{{title}}`, `{{message}}`, `{{click}}` |
+| `WISHLIST_SCHEDULER_ENABLED` | Automatic re-checks of saved searches (default `false`). Off until you turn it on; see "Wishlist" below. Requires a single app worker |
+| `WISHLIST_DELAY_MIN_SECONDS` / `WISHLIST_DELAY_MAX_SECONDS` | Random gap between scheduled MAM searches (default 30–90; never below 30) |
+| `WISHLIST_INTERVAL_HOURS` | How often each saved search is re-checked by the scheduler (default `72`) |
+| `WISHLIST_MAX_REQUESTS_PER_DAY` | Cap on wishlist MAM searches per rolling 24 hours, manual and scheduled (default `20`) |
 | `EBOOK_EXTENSIONS`     | File types offered for ebook import (default `epub,pdf,mobi,azw3,azw,cbz,cbr,djvu,fb2`) |
 | `QB_CATEGORY_AUDIO`    | qB category for new audiobook torrents (default `mam-audiofinder`; falls back to the older `QB_CATEGORY`) |
 | `QB_CATEGORY_EBOOK`    | qB category for new ebook torrents (default `mam-audiofinder-ebooks`)       |

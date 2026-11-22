@@ -48,6 +48,40 @@ MIGRATIONS = [
     (2, ["CREATE INDEX IF NOT EXISTS idx_history_mam_id ON history (mam_id)"]),
     # Phase 1: existing rows were all audiobooks.
     (3, ["ALTER TABLE history ADD COLUMN media_type TEXT NOT NULL DEFAULT 'audiobook'"]),
+    # Phase 2: wishlist of saved MAM searches.
+    (4, [
+        """CREATE TABLE wishlist (
+             id INTEGER PRIMARY KEY,
+             query TEXT NOT NULL,
+             srch_in TEXT NOT NULL,                 -- JSON list
+             media TEXT NOT NULL,                   -- audiobook | ebook | both
+             sort_type TEXT NOT NULL DEFAULT 'default',
+             label TEXT,
+             filters TEXT NOT NULL DEFAULT '{}',    -- JSON object
+             mode TEXT NOT NULL DEFAULT 'notify',   -- notify | auto
+             status TEXT NOT NULL DEFAULT 'active', -- active | matched | paused | done
+             fulfilled TEXT NOT NULL DEFAULT '[]',  -- JSON list of media types satisfied
+             created_at TEXT NOT NULL,
+             last_checked_at TEXT,
+             next_check_at TEXT,
+             last_error TEXT,
+             check_interval_hours INTEGER
+           )""",
+        """CREATE TABLE wishlist_seen (
+             wishlist_id INTEGER NOT NULL,
+             mam_id TEXT NOT NULL,
+             first_seen_at TEXT NOT NULL,
+             is_match INTEGER NOT NULL DEFAULT 0,
+             dismissed INTEGER NOT NULL DEFAULT 0,
+             result TEXT,                           -- JSON snapshot (matches only)
+             PRIMARY KEY (wishlist_id, mam_id)
+           )""",
+        "CREATE INDEX idx_wishlist_next_check ON wishlist (status, next_check_at)",
+        "CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT)",
+        # One row per wishlist MAM request, for the daily cap (survives restarts).
+        "CREATE TABLE mam_request_log (id INTEGER PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL)",
+        "CREATE INDEX idx_mam_request_log_at ON mam_request_log (at)",
+    ]),
 ]
 
 

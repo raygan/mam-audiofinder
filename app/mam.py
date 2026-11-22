@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, parse_qsl, urlencode
 
 import httpx
 
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
 USER_AGENT = f"mam-audiofinder/{APP_VERSION}"
 
 # Fixed on purpose: never configurable, so the cookie can't be sent elsewhere.
@@ -517,6 +517,9 @@ def normalize_result(item: dict) -> dict:
         "catname": item.get("catname"),
         "added": item.get("added"),
         "dl": item.get("dl"),
+        "lang_code": item.get("lang_code") or "",
+        # Documented; MAM updates it with a 5-20 min delay.
+        "my_snatched": str(item.get("my_snatched")).strip().lower() in ("1", "true"),
     }
 
 
@@ -539,11 +542,14 @@ async def search(
     sort_type: str = "default",
     start_number: int = 0,
     perpage: int = 25,
+    start_date: str | None = None,
 ) -> dict:
     """One documented JSON search. Returns {"results", "total", "total_found"}.
 
     `media` (audiobook | ebook | both) picks the documented main_cat and the
     default search fields; explicit srch_in / main_cat override it.
+    `start_date` (YYYY-MM-DD, documented tor.startDate, inclusive) limits
+    results to torrents added since then; the wishlist uses it.
     """
     if media not in MEDIA_SEARCH:
         raise MamEndpointNotAllowed(f"unknown media type: {media!r}")
@@ -556,6 +562,8 @@ async def search(
         "startNumber": str(int(start_number)),
         "main_cat": [str(c) for c in (main_cat or media_cats)],
     }
+    if start_date:
+        tor["startDate"] = start_date
     # dlLink goes in the JSON body with the other top-level parameters: sent
     # as a query param (as before 0.8), MAM returned no dl field at all.
     body = {"tor": tor, "perpage": clamp_perpage(perpage), "dlLink": "1"}

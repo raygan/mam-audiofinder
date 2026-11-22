@@ -73,6 +73,14 @@ def build_qb_path_map(raw_cfg, raw_env: str | None, dl_dir: str, qb_inner_prefix
     return pairs
 
 
+def _pos_int(raw, default: int) -> int:
+    try:
+        n = int(str(raw).strip())
+        return n if n > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 class Settings:
     def __init__(self) -> None:
         self.reload()
@@ -128,6 +136,26 @@ class Settings:
         # Only decides which format is pre-selected; the user picks at import.
         self.EBOOK_FORMAT_PREFERENCE = importer.parse_ext_list(
             pick("EBOOK_FORMAT_PREFERENCE"), importer.DEFAULT_FORMAT_PREFERENCE)
+
+        # Wishlist (Phase 2). The automatic scheduler is opt-in (ROADMAP rule 7).
+        self.WISHLIST_SCHEDULER_ENABLED = str(pick("WISHLIST_SCHEDULER_ENABLED", "false")).strip().lower() in (
+            "1", "true", "yes", "on")
+        self.WISHLIST_INTERVAL_HOURS = _pos_int(pick("WISHLIST_INTERVAL_HOURS"), 72)
+        # Every wishlist search (scheduled or "check now") counts toward this.
+        self.WISHLIST_MAX_REQUESTS_PER_DAY = _pos_int(pick("WISHLIST_MAX_REQUESTS_PER_DAY"), 20)
+        # Random gap between scheduled MAM requests; never below 30 s (scheduler enforces).
+        self.WISHLIST_DELAY_MIN_SECONDS = _pos_int(pick("WISHLIST_DELAY_MIN_SECONDS"), 30)
+        self.WISHLIST_DELAY_MAX_SECONDS = _pos_int(pick("WISHLIST_DELAY_MAX_SECONDS"), 90)
+
+        # Notifications: one webhook (ntfy by default). Never sent to MAM.
+        self.NOTIFY_WEBHOOK_URL = (pick("NOTIFY_WEBHOOK_URL") or "").strip()
+        fmt = str(pick("NOTIFY_FORMAT", "ntfy")).strip().lower()
+        self.NOTIFY_FORMAT = fmt if fmt in ("ntfy", "json") else "ntfy"
+        self.NOTIFY_TOKEN = (pick("NOTIFY_TOKEN") or "").strip()
+        mam.register_secret(self.NOTIFY_TOKEN)  # keep it out of logs too
+        self.NOTIFY_CLICK_URL = (pick("NOTIFY_CLICK_URL") or "").strip()
+        self.NOTIFY_BODY_TEMPLATE = pick("NOTIFY_BODY_TEMPLATE") or ""
+        self.NOTIFY_ON_IMPORT = str(pick("NOTIFY_ON_IMPORT", "false")).strip().lower() in ("1", "true", "yes", "on")
 
         self.UMASK = cfg.get("UMASK") or os.getenv("UMASK")
 

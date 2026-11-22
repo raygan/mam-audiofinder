@@ -63,6 +63,27 @@ The tests need real response shapes. With `MAM_CAPTURE_DIR` set, the app writes 
 - **Real captures** now in `tests/fixtures/`: `search_audiobook.json`, `search_both.json`, `search_empty.json`.
 - **Findings from real responses:** `dlLink` must be in the JSON body. `dl` is `<hash>?tid=<id>`. The count field is `found`. Newer qB returns 204 for login, 202 for a pending URL add and 409 for a duplicate. `my_snatched` lags by a few minutes.
 
+## Phase 2 (v0.9.0): wishlist
+
+- **Data:** migration 4 adds `wishlist`, `wishlist_seen` (baseline, matches with a result snapshot including `dl`, dismissed), `app_state` (the scheduler halt) and `mam_request_log` (the daily cap).
+- **`wishlist.py`:**
+  - CRUD and match rules: unseen for the item, not in History, not `my_snatched`, a wanted media type, passing the item's filters.
+  - Per-media fulfilment: a Both item is done when both media types are added.
+  - Each check is one documented search: `startDate` = the item's creation date, `searchType: active`, `perpage` 25.
+  - Every check, manual or scheduled, is logged and counted toward `WISHLIST_MAX_REQUESTS_PER_DAY` before sending.
+  - `_mam_lock` keeps one wishlist request in flight.
+- **`notify.py`:** ntfy "publish as JSON" (or a generic JSON webhook with a template), best effort, never to MAM, no cookie or download links.
+- **`scheduler.py`:**
+  - Opt-in, one in-process task. Runs due items oldest first, with a 30–90 s gap (30 s floor).
+  - Any MAM error halts it: the state is stored in `app_state`, one notification is sent, and only the user's Resume clears it.
+  - Auto mode applies only to scheduled checks.
+  - `run_once()` takes a clock and a sleep function, for tests.
+- **UI:**
+  - The search page has "☆ Save to wishlist" under the results and on No results, plus a header Wishlist link with a new-match or "halted" badge.
+  - The `/wishlist/view` page has cards with Check now, Matches (Add/Dismiss), Pause, Done, Edit and Delete, plus the scheduler state and Resume.
+  - Shared JS helpers live in `static/common.js`.
+- **Real findings:** MAM's search accepts `(5|five)`-style alternatives, so the app doesn't rewrite queries. `my_snatched` lags a few minutes after a download.
+
 ## How to Run for Testing
 
 - Tests (no network): `python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`, then `.venv/bin/python -m pytest -q`.

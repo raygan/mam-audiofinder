@@ -40,6 +40,7 @@ class Net:
         self.requests: list[httpx.Request] = []
         self.mam_handler = None
         self.qb_handler = self.default_qb
+        self.hosts = {}  # extra fake hosts, e.g. {"ntfy.test": handler}
 
     @property
     def mam_requests(self):
@@ -67,6 +68,8 @@ class Net:
             return self.mam_handler(request)
         if request.url.host == "qb.test":
             return self.qb_handler(request)
+        if request.url.host in self.hosts:
+            return self.hosts[request.url.host](request)
         pytest.fail(f"Unexpected network request: {request.method} {request.url}")
 
 
