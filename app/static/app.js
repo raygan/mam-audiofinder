@@ -215,20 +215,20 @@ function makeResultRow(it) {
   return tr;
 }
 
-// ---------- Ebook import (Grimmory) ----------
+// ---------- Ebook import (to the ebook import folder) ----------
 // One torrent can hold several formats of a book; the user ticks what to copy
 // (preferred format pre-ticked). Files are always copied, never linked.
 async function openEbookImport(expTd, h, tr, close) {
   expTd.innerHTML = `
     <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <span>Import to Grimmory from:</span>
+        <span>Import ebook from:</span>
         <select class="imp-torrent" style="min-width:280px;max-width:100%;">
           <option disabled selected>Loading torrents…</option>
         </select>
       </div>
       <div class="imp-files" style="margin-top:8px;"></div>
-      <button class="imp-go" style="margin-top:8px;" disabled>Copy to Grimmory</button>
+      <button class="imp-go" style="margin-top:8px;" disabled>Copy to ebook import folder</button>
       <div class="imp-status" style="margin-top:6px;color:#666;"></div>
     </div>
   `;
@@ -321,7 +321,7 @@ async function openEbookImport(expTd, h, tr, close) {
       });
       if (!r.ok) throw new Error(await errorOf(r));
       const jr = await r.json();
-      statusEl.textContent = `${h.title || 'Ebook'}: copied to Grimmory (${(jr.files || []).join(', ')})`;
+      statusEl.textContent = `${h.title || 'Ebook'}: copied to ebook import folder (${(jr.files || []).join(', ')})`;
       const statusTd = tr.children[5];
       if (statusTd) statusTd.textContent = 'imported';
       close();  // success: hide the panel; the result is in the status line

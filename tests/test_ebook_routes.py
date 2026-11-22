@@ -17,7 +17,7 @@ HASH = "e0" * 20
 
 @pytest.fixture
 def ingest(tmp_path, monkeypatch):
-    d = tmp_path / "bookdrop"
+    d = tmp_path / "ebook-import"
     d.mkdir()
     monkeypatch.setattr(main.settings, "EBOOK_INGEST_DIR", str(d))
     monkeypatch.setattr(main.settings, "QB_POSTIMPORT_CATEGORY_EBOOK", "ebooks-imported")
@@ -87,9 +87,9 @@ def test_setup_rejects_unusable_ingest_folder(client, tmp_path, make):
 
 
 def test_setup_page_shows_ingest_field(client, monkeypatch):
-    monkeypatch.setattr(main.settings, "EBOOK_INGEST_DIR", "/media/Books/eBooks/bookdrop")
+    monkeypatch.setattr(main.settings, "EBOOK_INGEST_DIR", "/media/books/import")
     page = client.get("/setup").text
-    assert 'id="ebook_ingest_dir"' in page and 'value="/media/Books/eBooks/bookdrop"' in page
+    assert 'id="ebook_ingest_dir"' in page and 'value="/media/books/import"' in page
 
 
 # ---------------- choices ----------------

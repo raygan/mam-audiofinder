@@ -1,4 +1,4 @@
-"""Phase 1 step 3: ebook choices and copy-only import into Grimmory's ingest
+"""Phase 1 step 3: ebook choices and copy-only import into the ebook import
 folder. Local files only."""
 import os
 import shutil
@@ -13,7 +13,7 @@ from importer import ImportFailed, ebook_choices, import_ebooks
 
 @pytest.fixture
 def ingest(tmp_path):
-    d = tmp_path / "bookdrop"
+    d = tmp_path / "ebook-import"
     d.mkdir()
     return d
 

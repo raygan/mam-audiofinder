@@ -1,6 +1,6 @@
 # MAM Book Finder
 
-A lightweight web app + API to quickly search MyAnonamouse for audiobooks and ebooks, add them to qBittorrent, and import completed downloads: audiobooks into your [Audiobookshelf](https://www.audiobookshelf.org/) library, ebooks into Grimmory's ingest folder.
+A lightweight web app + API to quickly search MyAnonamouse for audiobooks and ebooks, add them to qBittorrent, and import completed downloads: audiobooks into your [Audiobookshelf](https://www.audiobookshelf.org/) library, ebooks into your ebook library's import folder.
 
 ![Search](/app/static/screenshots/search.png)
 ![Import](/app/static/screenshots/import.png)
@@ -12,7 +12,7 @@ A lightweight web app + API to quickly search MyAnonamouse for audiobooks and eb
 - **Versions grouped by book**: the same book's m4b/mp3 or epub/pdf uploads share one row, so you pick the one you want (audiobooks with different narrators stay separate)  
 - **One-click add to qBittorrent**, with separate categories and tags for audiobooks and ebooks  
 - **History view** of all books you've added  
-- **Inline import tool**: audiobooks are copied or hard-linked into your Audiobookshelf library; ebooks are copied into Grimmory's ingest folder, and you choose which formats  
+- **Inline import tool**: audiobooks are copied or hard-linked into your Audiobookshelf library; ebooks are copied into your ebook library's import folder, and you choose which formats  
 - Minimal, fast UI that works on desktop and mobile
 - ZERO AUTHENTICATION (*Please* don't put this on the open internet. Tailscale or a Cloudflare Tunnel with Cloudflare Access might be good options.)
 - Spouse tested and approved
@@ -57,14 +57,14 @@ This repository includes a `docker-compose.yml` for Docker users. The usual flow
    ```
 5. Visit [http://localhost:8008](http://localhost:8008) (or your mapped port). On first run, you should land on `/setup` to configure MAM, qBittorrent, and library paths.
 
-## Ebooks and Grimmory
+## Ebooks
 
-Ebook import copies the files you choose into Grimmory's ingest (BookDrop) folder. Grimmory picks them up from there and handles metadata and organisation, so the app doesn't create Author/Title folders for ebooks.
+Most ebook servers can watch an import folder and add whatever appears there. Ebook import copies the files you choose into that folder. Your ebook server picks them up and handles metadata and organisation, so the app doesn't create Author/Title folders for ebooks.
 
-Set `EBOOK_INGEST_DIR` to that folder's path **inside this container**, either in `.env` or on the Setup page. For example, on Unraid with the default single mount `MEDIA_ROOT=/mnt/user/media` (mounted at `/media`), a BookDrop folder at `/mnt/user/media/Books/eBooks/bookdrop/` on the host becomes:
+Set `EBOOK_INGEST_DIR` to that folder's path **inside this container**, either in `.env` or on the Setup page. For example, on Unraid with the default single mount `MEDIA_ROOT=/mnt/user/media` (mounted at `/media`), an import folder at `/mnt/user/media/books/import/` on the host becomes:
 
 ```env
-EBOOK_INGEST_DIR=/media/Books/eBooks/bookdrop
+EBOOK_INGEST_DIR=/media/books/import
 ```
 
 The folder must already exist and be writable by the container's user (`PUID`/`PGID`, e.g. 99:100 on Unraid). The app checks this on startup and when you save Setup, and shows any problem on the main page.
@@ -73,7 +73,7 @@ How ebook import works:
 
 - **Always copied, never hardlinked or moved.** Ingest tools commonly rewrite or delete the files they process. A hardlinked file that gets rewritten (for example, metadata embedded into an EPUB) corrupts the torrent you're seeding, and a moved file stops seeding. MAM is ratio-based, so this setting is deliberately not configurable.
 - **You choose the formats.** When a torrent holds several formats of a book (e.g. `book.epub` and `book.pdf`), Import shows a checkbox for each, with the preferred format ticked (`EBOOK_FORMAT_PREFERENCE`, default `epub,azw3,mobi,pdf`). Covers, `.nfo` and other non-book files are never copied.
-- **Grimmory never sees half a file.** Each file is written under a hidden `.partial` name and renamed into place when complete. A name that's already taken becomes `book (2).epub`.
+- **Your ebook server never sees half a file.** Each file is written under a hidden `.partial` name and renamed into place when complete. A name that's already taken becomes `book (2).epub`.
 
 **Audiobooks and hardlinks:** `IMPORT_MODE=link` is only safe if Audiobookshelf is **not** set to embed metadata into your audio files. Embedding rewrites the file, and with a hardlink that also changes the copy you're seeding. Use `IMPORT_MODE=copy` if you embed metadata.
 
@@ -91,7 +91,7 @@ How ebook import works:
 | `DL_DIR`               | In-container path for qBittorrent downloads (default `/media/torrents`)     |
 | `LIB_DIR`              | In-container path for Audiobookshelf library (default `/media/audiobookshelf`) |
 | `IMPORT_MODE`          | Audiobooks only: `link`, `copy`, or `move` (default `link`). See the hardlink note above. Ebooks are always copied |
-| `EBOOK_INGEST_DIR`     | In-container path of Grimmory's ingest (BookDrop) folder, e.g. `/media/Books/eBooks/bookdrop`. Ebook import is unavailable until set |
+| `EBOOK_INGEST_DIR`     | In-container path of your ebook library's import folder, e.g. `/media/books/import`. Ebook import is unavailable until set |
 | `EBOOK_FORMAT_PREFERENCE` | Which ebook format is pre-ticked at import (default `epub,azw3,mobi,pdf`); you can still tick any format |
 | `EBOOK_EXTENSIONS`     | File types offered for ebook import (default `epub,pdf,mobi,azw3,azw,cbz,cbr,djvu,fb2`) |
 | `QB_CATEGORY_AUDIO`    | qB category for new audiobook torrents (default `mam-audiofinder`; falls back to the older `QB_CATEGORY`) |
@@ -109,7 +109,7 @@ How ebook import works:
 
 ## Storage configuration examples
 
-The app only cares about the in‑container paths `DL_DIR` (qBittorrent downloads), `LIB_DIR` (Audiobookshelf library) and, for ebooks, `EBOOK_INGEST_DIR` (Grimmory's ingest folder). How you mount host paths into the container is up to you. For example:
+The app only cares about the in‑container paths `DL_DIR` (qBittorrent downloads), `LIB_DIR` (Audiobookshelf library) and, for ebooks, `EBOOK_INGEST_DIR` (your ebook library's import folder). How you mount host paths into the container is up to you. For example:
 
 ### 1. Single media root (hardlink‑friendly)
 
@@ -119,7 +119,7 @@ Example host layout:
 
 - qB downloads: `/mnt/media/torrents`  
 - Audiobookshelf: `/mnt/media/audiobookshelf`
-- Grimmory ingest (optional): `/mnt/media/Books/eBooks/bookdrop`
+- Ebook import folder (optional): `/mnt/media/books/import`
 
 `.env`:
 
@@ -128,7 +128,7 @@ MEDIA_ROOT=/mnt/media
 DL_DIR=/media/torrents
 LIB_DIR=/media/audiobookshelf
 IMPORT_MODE=link
-EBOOK_INGEST_DIR=/media/Books/eBooks/bookdrop
+EBOOK_INGEST_DIR=/media/books/import
 ```
 
 `docker-compose.yml` (default) already contains:
@@ -149,7 +149,7 @@ Example host layout:
 
 - qB downloads: `/mnt/disk1/torrents`  
 - Audiobookshelf: `/mnt/disk2/audiobooks`
-- Grimmory ingest (optional): `/mnt/disk3/bookdrop`
+- Ebook import folder (optional): `/mnt/disk3/ebook-import`
 
 `docker-compose.yml` (adjust or override the `volumes` section):
 
@@ -158,7 +158,7 @@ volumes:
   - ${DATA_DIR}:/data
   - /mnt/disk1/torrents:/downloads
   - /mnt/disk2/audiobooks:/library
-  - /mnt/disk3/bookdrop:/bookdrop
+  - /mnt/disk3/ebook-import:/ebook-import
 ```
 
 `.env`:
@@ -166,7 +166,7 @@ volumes:
 ```env
 DL_DIR=/downloads
 LIB_DIR=/library
-EBOOK_INGEST_DIR=/bookdrop
+EBOOK_INGEST_DIR=/ebook-import
 # MEDIA_ROOT is unused in this layout
 ```
 

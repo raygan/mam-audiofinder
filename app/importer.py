@@ -1,5 +1,5 @@
 """Local file import: completed qB downloads -> Audiobookshelf library
-(audiobooks) or Grimmory's ingest folder (ebooks).
+(audiobooks) or an ebook library's import folder (ebooks).
 
 No network here; qB lookups happen in qb.py, MAM never.
 """
@@ -87,7 +87,7 @@ def import_audiobook(src_root: Path, author: str, title: str, lib_dir: str, mode
     return dest_dir
 
 
-# ---------------------------- Ebooks -> Grimmory ----------------------------
+# ---------------------------- Ebooks -> import folder ----------------------------
 # Ebooks are always COPIED, never hardlinked or moved: ingest tools rewrite or
 # delete what they process, which would corrupt or stop the seeding torrent.
 
@@ -223,7 +223,7 @@ def ingest_dir_problem(path: str, write_test: bool = False) -> str | None:
 
 
 def import_ebooks(src_root: Path, chosen: list[str], ingest_dir: str, exts=DEFAULT_EBOOK_EXTENSIONS) -> list[Path]:
-    """Copy the chosen ebook files (flat) into Grimmory's ingest folder."""
+    """Copy the chosen ebook files (flat) into the ebook import folder."""
     if not chosen:
         raise ImportFailed("Choose at least one file to import")
     problem = ingest_dir_problem(ingest_dir)

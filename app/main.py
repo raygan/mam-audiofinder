@@ -99,7 +99,7 @@ async def mam_error_handler(request: Request, exc: mam.MamError):
 
 @app.get("/health")
 async def health():
-    # "ok" stays a plain liveness flag; ebook_ingest reports the Grimmory folder.
+    # "ok" stays a plain liveness flag; ebook_ingest reports the ebook import folder.
     if not settings.EBOOK_INGEST_DIR:
         ingest = "not configured"
     else:
@@ -267,7 +267,7 @@ async def do_import(body: ImportBody):
         if not body.files:
             raise HTTPException(status_code=400, detail="Choose at least one file to import")
         src_root = await _content_root(h)
-        # Copy only (never link/move); flat into Grimmory's ingest folder.
+        # Copy only (never link/move); flat into the ebook import folder.
         copied = await run_in_threadpool(
             importer.import_ebooks, src_root, body.files, settings.EBOOK_INGEST_DIR, settings.EBOOK_EXTENSIONS)
         dest = settings.EBOOK_INGEST_DIR
