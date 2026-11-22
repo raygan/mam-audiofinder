@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 import db
 import mam
+import notify
 from config import settings, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
@@ -400,6 +401,9 @@ async def check(item_id: int, cookie: str, trigger: str = "manual", now: datetim
                 "t": _fmt(now), "n": _fmt(next_check_after(now, interval)),
                 "matched": bool(new_matches), "id": item_id,
             })
+        updated = get(item_id)
         if new_matches:
             log.info("Wishlist item %s: %d new match(es)", item_id, len(new_matches))
-        return {"item": get(item_id), "new_matches": new_matches}
+            # Best effort: a failed notification never fails the check.
+            await notify.wishlist_matches(updated, new_matches)
+        return {"item": updated, "new_matches": new_matches}

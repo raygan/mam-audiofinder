@@ -30,6 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
       app_prefix: document.getElementById('app_prefix')?.value.trim() || '',
       lib_dir: document.getElementById('lib_dir')?.value.trim() || '',
       ebook_ingest_dir: document.getElementById('ebook_ingest_dir')?.value.trim() || '',
+      notify_webhook_url: document.getElementById('notify_webhook_url')?.value.trim() ?? '',
+      notify_format: document.getElementById('notify_format')?.value || 'ntfy',
+      notify_token: document.getElementById('notify_token')?.value || '',
+      notify_clear_token: !!document.getElementById('notify_clear_token')?.checked,
+      notify_click_url: document.getElementById('notify_click_url')?.value.trim() ?? '',
+      notify_on_import: !!document.getElementById('notify_on_import')?.checked,
     };
 
     statusEl.textContent = 'Saving…';
@@ -56,3 +62,33 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+
+// "Send test notification": save the form first, then ask the server to send one.
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('notifyTestBtn');
+  const st = document.getElementById('notifyTestStatus');
+  const form = document.getElementById('setupForm');
+  if (!btn || !form) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    st.textContent = 'Saving…';
+    form.requestSubmit();
+    // Wait for the save handler to finish (it reports in #setupStatus).
+    const saved = document.getElementById('setupStatus');
+    for (let i = 0; i < 50 && saved.textContent === 'Saving…'; i++) await new Promise(r => setTimeout(r, 100));
+    if (!saved.textContent.startsWith('Saved')) { st.textContent = 'Fix the setup error first.'; btn.disabled = false; return; }
+    st.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/notify/test', { method: 'POST' });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
+        throw new Error(msg);
+      }
+      st.textContent = 'Sent. Check your phone.';
+    } catch (e) {
+      st.textContent = `Not sent: ${e.message}`;
+    }
+    btn.disabled = false;
+  });
+});

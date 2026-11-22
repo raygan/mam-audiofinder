@@ -93,6 +93,14 @@ How ebook import works:
 | `IMPORT_MODE`          | Audiobooks only: `link`, `copy`, or `move` (default `link`). See the hardlink note above. Ebooks are always copied |
 | `EBOOK_INGEST_DIR`     | In-container path of your ebook library's import folder, e.g. `/media/books/import`. Ebook import is unavailable until set |
 | `EBOOK_FORMAT_PREFERENCE` | Which ebook format is pre-ticked at import (default `epub,azw3,mobi,pdf`); you can still tick any format |
+| `NOTIFY_WEBHOOK_URL`   | Where to send notifications: your ntfy topic URL (e.g. `https://ntfy.example.com/books`) or another webhook. Empty = none. Never receives your cookie or download links |
+| `NOTIFY_FORMAT`        | `ntfy` (default) or `json` (generic webhook, e.g. Home Assistant) |
+| `NOTIFY_TOKEN`         | Optional ntfy access token (sent as a Bearer token) |
+| `NOTIFY_CLICK_URL`     | Optional link opened when a notification is tapped, e.g. this app's `/wishlist/view` |
+| `NOTIFY_ON_IMPORT`     | Also notify when an import finishes (default `false`) |
+| `NOTIFY_BODY_TEMPLATE` | `json` format only: custom body using `{{event}}`, `{{title}}`, `{{message}}`, `{{click}}` |
+| `WISHLIST_INTERVAL_HOURS` | How often each saved search is re-checked by the scheduler (default `72`) |
+| `WISHLIST_MAX_REQUESTS_PER_DAY` | Cap on wishlist MAM searches per rolling 24 hours, manual and scheduled (default `20`) |
 | `EBOOK_EXTENSIONS`     | File types offered for ebook import (default `epub,pdf,mobi,azw3,azw,cbz,cbr,djvu,fb2`) |
 | `QB_CATEGORY_AUDIO`    | qB category for new audiobook torrents (default `mam-audiofinder`; falls back to the older `QB_CATEGORY`) |
 | `QB_CATEGORY_EBOOK`    | qB category for new ebook torrents (default `mam-audiofinder-ebooks`)       |

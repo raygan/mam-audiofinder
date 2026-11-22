@@ -87,6 +87,37 @@
         <small>Optional. The import (watch) folder your ebook library picks new books up from, e.g. <code>/media/books/import</code>. Ebooks are always copied (never hardlinked), so the library can't damage the seeding torrent. The folder must already exist and be writable by this container's user.</small>
       </div>
 
+      <h3 style="margin:1.5rem 0 .5rem; font-size:1.05rem;">Notifications (optional)</h3>
+      <div class="row">
+        <label for="notify_webhook_url">Notification URL</label>
+        <input id="notify_webhook_url" name="notify_webhook_url" type="text" value="{{ notify_webhook_url }}" placeholder="https://ntfy.example.com/books" />
+        <small>For ntfy, your topic's URL. Used for new wishlist matches and (later) scheduler problems. Notifications never include your MAM cookie or download links. Leave empty for none.</small>
+      </div>
+      <div class="row">
+        <label for="notify_format">Format</label>
+        <select id="notify_format" name="notify_format">
+          <option value="ntfy" {% if notify_format != "json" %}selected{% endif %}>ntfy</option>
+          <option value="json" {% if notify_format == "json" %}selected{% endif %}>Generic JSON webhook (e.g. Home Assistant)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="notify_token">Access token</label>
+        <input id="notify_token" name="notify_token" type="password" autocomplete="off" placeholder="{% if notify_has_token %}Saved (leave blank to keep){% else %}Only if your topic needs one{% endif %}" />
+        {% if notify_has_token %}<label style="font-weight:normal"><input id="notify_clear_token" type="checkbox" /> Remove the saved token</label>{% endif %}
+      </div>
+      <div class="row">
+        <label for="notify_click_url">Open this when a notification is tapped</label>
+        <input id="notify_click_url" name="notify_click_url" type="text" value="{{ notify_click_url }}" placeholder="https://books.example.com/wishlist/view" />
+        <small>Optional: this app's address as you reach it from your phone.</small>
+      </div>
+      <div class="row">
+        <label style="font-weight:normal"><input id="notify_on_import" type="checkbox" {% if notify_on_import %}checked{% endif %} /> Also notify when an import finishes</label>
+      </div>
+      <div class="row" style="flex-direction:row; align-items:center; gap:.75rem;">
+        <button type="button" id="notifyTestBtn">Send test notification</button>
+        <span id="notifyTestStatus" class="muted">Saves first, then sends one test message.</span>
+      </div>
+
       <div class="row">
         <button type="submit">Save setup</button>
         <span id="setupStatus" class="muted"></span>

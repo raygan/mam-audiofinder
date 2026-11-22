@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-import db, importer, mam, qb, wishlist
+import db, importer, mam, notify, qb, wishlist
 from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
@@ -32,6 +32,11 @@ def setup_context(request: Request) -> dict:
         "qb_user": settings.QB_USER,
         "lib_dir": settings.LIB_DIR,
         "ebook_ingest_dir": settings.EBOOK_INGEST_DIR,
+        "notify_webhook_url": settings.NOTIFY_WEBHOOK_URL,
+        "notify_format": settings.NOTIFY_FORMAT,
+        "notify_has_token": bool(settings.NOTIFY_TOKEN),  # never the token itself
+        "notify_click_url": settings.NOTIFY_CLICK_URL,
+        "notify_on_import": settings.NOTIFY_ON_IMPORT,
         "qb_prefix": qb_prefix,
         "app_prefix": app_prefix,
     }
@@ -43,6 +48,12 @@ class SetupPayload(BaseModel):
     qb_pass: str | None = None
     lib_dir: str | None = None
     ebook_ingest_dir: str | None = None
+    notify_webhook_url: str | None = None
+    notify_format: str | None = None
+    notify_token: str | None = None   # blank keeps the saved token
+    notify_clear_token: bool = False
+    notify_click_url: str | None = None
+    notify_on_import: bool | None = None
     qb_prefix: str | None = None
     app_prefix: str | None = None
 
@@ -147,6 +158,25 @@ async def api_setup(body: SetupPayload):
         if problem:
             raise HTTPException(status_code=400, detail=problem)
         cfg["EBOOK_INGEST_DIR"] = ingest
+    if body.notify_webhook_url is not None:
+        url = body.notify_webhook_url.strip()
+        if url:
+            problem = notify.target_problem(url)
+            if problem:
+                raise HTTPException(status_code=400, detail=problem)
+        cfg["NOTIFY_WEBHOOK_URL"] = url
+    if body.notify_format is not None:
+        if body.notify_format not in notify.FORMATS:
+            raise HTTPException(status_code=400, detail="notify_format must be ntfy or json")
+        cfg["NOTIFY_FORMAT"] = body.notify_format
+    if body.notify_clear_token:
+        cfg["NOTIFY_TOKEN"] = ""
+    elif body.notify_token and body.notify_token.strip():
+        cfg["NOTIFY_TOKEN"] = body.notify_token.strip()
+    if body.notify_click_url is not None:
+        cfg["NOTIFY_CLICK_URL"] = body.notify_click_url.strip()
+    if body.notify_on_import is not None:
+        cfg["NOTIFY_ON_IMPORT"] = "true" if body.notify_on_import else "false"
 
     if body.qb_prefix and body.qb_prefix.strip() and body.app_prefix and body.app_prefix.strip():
         qb_prefix = body.qb_prefix.strip().rstrip("/") or "/"
@@ -160,6 +190,19 @@ async def api_setup(body: SetupPayload):
         raise HTTPException(status_code=500, detail=f"Failed to write config: {e}")
 
     settings.reload()
+    return {"ok": True}
+
+@app.post("/api/notify/test")
+async def notify_test():
+    """Send one test notification with the saved settings (user-initiated)."""
+    if is_setup_disabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    problem = notify.target_problem(settings.NOTIFY_WEBHOOK_URL)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    ok = await notify.send("test", "Book Finder test notification", "Notifications from Book Finder are working.")
+    if not ok:
+        raise HTTPException(status_code=qb.UPSTREAM_FAILED, detail="The notification wasn't accepted; check the URL, token and app logs")
     return {"ok": True}
 
 # ---------------------------- Search ----------------------------
@@ -362,4 +405,5 @@ async def do_import(body: ImportBody):
         await qb.set_category_best_effort(h, settings.postimport_category(media_type))
 
     db.mark_imported(body.history_id, h)
+    await notify.imported((body.title or "").strip() or ", ".join(result.get("files", [])) or "torrent", media_type)
     return {"ok": True, "dest": str(dest), **result}
