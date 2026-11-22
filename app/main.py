@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-import db, importer, mam, notify, qb, wishlist
+import db, importer, mam, notify, qb, scheduler, wishlist
 from config import settings, load_json_config, save_json_config, is_setup_disabled, needs_setup, apply_umask, MEDIA_TYPES
 
 log = logging.getLogger("mam-audiofinder")
@@ -71,7 +71,10 @@ async def lifespan(_app):
         else:
             # uvicorn's logger is shown at INFO; the app logger only shows warnings.
             logging.getLogger("uvicorn.error").info("Ebook ingest folder OK: %s", settings.EBOOK_INGEST_DIR)
+    # Opt-in only; one in-process task (run the app as a single worker).
+    scheduler.start()
     yield
+    await scheduler.stop()
 
 app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespan)
 
@@ -110,6 +113,12 @@ async def mam_error_handler(request: Request, exc: mam.MamError):
     if isinstance(exc, mam.MamAuthError):
         detail += ". Update the mam_id cookie in Setup."
     log.warning("MAM request stopped (%s): %s", type(exc).__name__, detail)
+    # Fail closed for automation too: a cookie or rate-limit problem (anywhere),
+    # or any MAM error from a wishlist check, stops scheduled checks until Resume.
+    is_wishlist = request.url.path.startswith("/wishlist/")
+    if settings.WISHLIST_SCHEDULER_ENABLED and (
+            is_wishlist or isinstance(exc, (mam.MamAuthError, mam.MamRateLimitError))):
+        await scheduler.halt(f"{type(exc).__name__}: {detail}")
     return JSONResponse({"detail": detail, "error": type(exc).__name__}, status_code=status)
 
 @app.get("/health")
@@ -291,8 +300,7 @@ def wishlist_summary():
     return {
         "unreviewed": wishlist.unreviewed_match_count(),
         "items": len(wishlist.list_items()),
-        # The scheduler arrives in a later 0.9 step; nothing runs until then.
-        "scheduler": "disabled",
+        "scheduler": scheduler.status()["state"],
     }
 
 @app.get("/wishlist")
@@ -332,6 +340,17 @@ def wishlist_matches(item_id: int, include_dismissed: bool = False):
 def wishlist_dismiss(item_id: int, mam_id: str):
     wishlist.dismiss(item_id, mam_id)
     return {"ok": True}
+
+# ---------------------------- Scheduler ----------------------------
+@app.get("/scheduler/status")
+def scheduler_status():
+    return scheduler.status()
+
+@app.post("/scheduler/resume")
+def scheduler_resume():
+    """Only the user can clear a halt, after fixing its cause."""
+    scheduler.resume()
+    return scheduler.status()
 
 # ---------------------------- History ----------------------------
 @app.get("/history")

@@ -50,11 +50,10 @@ async function api(method, url, body) {
 // ---------------- list ----------------
 async function load() {
   try {
-    const [list, summary] = await Promise.all([api('GET', '/wishlist'), api('GET', '/wishlist/summary')]);
+    const [list, sched] = await Promise.all([api('GET', '/wishlist'), api('GET', '/scheduler/status')]);
     document.getElementById('usage').textContent =
       `Wishlist searches in the last 24 hours: ${list.requests_last_24h} of ${list.max_requests_per_day}.`;
-    document.getElementById('scheduler').textContent =
-      summary.scheduler === 'disabled' ? 'Automatic re-checks are off.' : `Scheduler: ${summary.scheduler}.`;
+    renderScheduler(sched);
     itemsEl.innerHTML = '';
     if (!list.items.length) {
       itemsEl.append(el('p', { class: 'muted' },
@@ -65,6 +64,27 @@ async function load() {
   } catch (e) {
     console.error(e);
     statusEl.textContent = `Couldn't load the wishlist: ${e.message}`;
+  }
+}
+
+function renderScheduler(s) {
+  const box = document.getElementById('scheduler');
+  box.innerHTML = '';
+  if (s.state === 'disabled') {
+    box.append('Automatic re-checks are off (WISHLIST_SCHEDULER_ENABLED).');
+  } else if (s.state === 'halted') {
+    const resume = el('button', { style: 'margin-left:.5rem' }, 'Resume');
+    resume.addEventListener('click', async () => {
+      if (!confirm('Resume automatic re-checks? Only do this after fixing the cause.')) return;
+      try { await api('POST', '/scheduler/resume'); await load(); }
+      catch (e) { statusEl.textContent = e.message; }
+    });
+    box.append(el('span', { class: 'error' },
+      `Automatic re-checks stopped ${when(s.halted?.at)}: ${s.halted?.reason || 'unknown reason'}`), resume);
+  } else if (s.state === 'running') {
+    box.append(`Automatic re-checks every ${s.interval_hours} h` + (s.next_due ? `; next due ${when(s.next_due)}.` : '.'));
+  } else {
+    box.append('Automatic re-checks are enabled but not running; check the app logs.');
   }
 }
 
@@ -91,11 +111,12 @@ function renderItem(item) {
       badges(item.media),
       el('span', { class: 'title' }, title),
       el('span', { class: `pill ${item.status}` }, item.status),
-      item.mode === 'auto' ? el('span', { class: 'pill', title: 'Auto-grab runs only with the scheduler' }, 'auto') : null,
+      item.mode === 'auto' ? el('span', { class: 'pill', title: 'Scheduled checks add the best match automatically' }, 'auto') : null,
     ),
     item.label ? el('div', { class: 'muted' }, `Search: ${item.query}`) : null,
     el('div', { class: 'muted' },
-      `Saved ${when(item.created_at)} · last checked ${when(item.last_checked_at)}${fulfilled}`),
+      `Saved ${when(item.created_at)} · last checked ${when(item.last_checked_at)}` +
+      (['active', 'matched'].includes(item.status) ? ` · next due ${when(item.next_check_at)}` : '') + fulfilled),
     filterSummary(item.filters) ? el('div', { class: 'muted' }, `Filters: ${filterSummary(item.filters)}`) : null,
     errorLine,
   ].filter(Boolean));
@@ -218,7 +239,7 @@ function renderEdit(item, box) {
   const inputs = {
     label: el('input', { type: 'text', value: v(item.label), placeholder: 'Optional friendly name' }),
     query: el('input', { type: 'text', value: item.query }),
-    mode: el('select', {}, el('option', { value: 'notify' }, 'Notify me'), el('option', { value: 'auto' }, 'Auto-grab (with scheduler)')),
+    mode: el('select', {}, el('option', { value: 'notify' }, 'Notify me'), el('option', { value: 'auto' }, 'Auto-grab the best match (scheduled checks only)')),
     interval: el('input', { type: 'number', min: '1', value: v(item.check_interval_hours), placeholder: 'Default' }),
     formats: el('input', { type: 'text', value: (f.formats || []).join(', '), placeholder: 'e.g. epub, m4b (any if empty)' }),
     min_seeders: el('input', { type: 'number', min: '0', value: v(f.min_seeders), placeholder: '0' }),

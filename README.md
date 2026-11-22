@@ -99,6 +99,8 @@ How ebook import works:
 | `NOTIFY_CLICK_URL`     | Optional link opened when a notification is tapped, e.g. this app's `/wishlist/view` |
 | `NOTIFY_ON_IMPORT`     | Also notify when an import finishes (default `false`) |
 | `NOTIFY_BODY_TEMPLATE` | `json` format only: custom body using `{{event}}`, `{{title}}`, `{{message}}`, `{{click}}` |
+| `WISHLIST_SCHEDULER_ENABLED` | Automatic re-checks of saved searches (default `false`). Off until you turn it on; see "Wishlist" below. Requires a single app worker |
+| `WISHLIST_DELAY_MIN_SECONDS` / `WISHLIST_DELAY_MAX_SECONDS` | Random gap between scheduled MAM searches (default 30–90; never below 30) |
 | `WISHLIST_INTERVAL_HOURS` | How often each saved search is re-checked by the scheduler (default `72`) |
 | `WISHLIST_MAX_REQUESTS_PER_DAY` | Cap on wishlist MAM searches per rolling 24 hours, manual and scheduled (default `20`) |
 | `EBOOK_EXTENSIONS`     | File types offered for ebook import (default `epub,pdf,mobi,azw3,azw,cbz,cbr,djvu,fb2`) |

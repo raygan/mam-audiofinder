@@ -143,6 +143,9 @@ class Settings:
         self.WISHLIST_INTERVAL_HOURS = _pos_int(pick("WISHLIST_INTERVAL_HOURS"), 72)
         # Every wishlist search (scheduled or "check now") counts toward this.
         self.WISHLIST_MAX_REQUESTS_PER_DAY = _pos_int(pick("WISHLIST_MAX_REQUESTS_PER_DAY"), 20)
+        # Random gap between scheduled MAM requests; never below 30 s (scheduler enforces).
+        self.WISHLIST_DELAY_MIN_SECONDS = _pos_int(pick("WISHLIST_DELAY_MIN_SECONDS"), 30)
+        self.WISHLIST_DELAY_MAX_SECONDS = _pos_int(pick("WISHLIST_DELAY_MAX_SECONDS"), 90)
 
         # Notifications: one webhook (ntfy by default). Never sent to MAM.
         self.NOTIFY_WEBHOOK_URL = (pick("NOTIFY_WEBHOOK_URL") or "").strip()

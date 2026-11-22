@@ -580,8 +580,11 @@ async function loadWishSummary() {
     const r = await fetch('/wishlist/summary');
     if (!r.ok) return;
     const j = await r.json();
-    badge.textContent = j.unreviewed ? `${j.unreviewed} new` : '';
-    badge.style.display = j.unreviewed ? '' : 'none';
+    const halted = j.scheduler === 'halted';
+    badge.textContent = halted ? 'halted' : (j.unreviewed ? `${j.unreviewed} new` : '');
+    badge.style.display = halted || j.unreviewed ? '' : 'none';
+    badge.style.background = halted ? '#c33' : '';
+    badge.style.color = halted ? '#fff' : '';
     link.title = `Saved searches · scheduler ${j.scheduler}`;
   } catch {}
 }
