@@ -7,11 +7,14 @@ function mediaBadge(type) {
   return `<span class="badge" title="${type === 'ebook' ? 'Ebook' : 'Audiobook'}">${icon}</span>`;
 }
 
+// Safe for text and for attribute values (titles can contain quotes).
 function escapeHtml(s) {
-  return (s || '').toString()
+  return (s ?? '').toString()
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function formatSize(sz) {
@@ -30,3 +33,31 @@ async function errorOf(r) {
   try { const j = await r.json(); if (j?.detail) msg += ` — ${j.detail}`; } catch {}
   return msg;
 }
+
+// ---------- Light / dark ----------
+// "auto" follows the system; the choice is per browser. The <head> applies
+// it before the page paints, so there's no flash.
+const THEME_KEY = 'bookfinder.theme';
+const THEME_ICONS = { auto: '🌓', light: '☀️', dark: '🌙' };
+const THEME_NAMES = { auto: 'Theme: follow system', light: 'Theme: light', dark: 'Theme: dark' };
+
+function currentTheme() {
+  try { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' ? t : 'auto'; }
+  catch { return 'auto'; }
+}
+
+function applyTheme(t) {
+  if (t === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  const btn = document.getElementById('themeToggle');
+  if (btn) { btn.textContent = THEME_ICONS[t]; btn.title = THEME_NAMES[t]; btn.setAttribute('aria-label', THEME_NAMES[t]); }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme(currentTheme());
+  document.getElementById('themeToggle')?.addEventListener('click', () => {
+    const next = { auto: 'light', light: 'dark', dark: 'auto' }[currentTheme()];
+    try { if (next === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, next); } catch {}
+    applyTheme(next);
+  });
+});

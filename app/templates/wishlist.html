@@ -4,52 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Wishlist – Book Finder</title>
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
-  <link rel="apple-touch-icon" href="/static/favicon-180.png">
-  <meta name="theme-color" content="#f5c518">
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; max-width: 1000px; }
-    @media (max-width: 600px) { body { margin: 1rem; } }
-    header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    h1 { font-size: 1.4rem; margin: 0; }
-    h1 a { color: inherit; text-decoration: none; }
-    .logo { height: 1.6rem; width: auto; }
-    .muted { color:#666; font-size:0.9rem; }
-    .error { color:#a33; font-size:0.9rem; }
-    button { padding:0.45rem 0.8rem; border:1px solid #888; background:#f6f6f6; border-radius:8px; cursor:pointer; }
-    button:disabled { opacity:.55; cursor:default; }
-    input[type="text"], input[type="number"], select { padding:0.45rem; border:1px solid #ccc; border-radius:8px; }
-    .card { border:1px solid #ddd; border-radius:12px; padding:.8rem 1rem; margin:.75rem 0; }
-    .card-head { display:flex; gap:.5rem; align-items:baseline; flex-wrap:wrap; }
-    .title { font-weight:600; font-size:1.05rem; }
-    .pill { font-size:.8rem; padding:.05rem .5rem; border-radius:999px; border:1px solid #ccc; }
-    .pill.matched { background:#f5c518; border-color:#e0b000; }
-    .pill.paused { background:#eee; }
-    .pill.done { background:#dff3df; border-color:#9c9; }
-    .actions { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.6rem; }
-    .matches { margin-top:.6rem; border-top:1px solid #eee; padding-top:.4rem; }
-    .match { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; padding:.35rem 0; border-bottom:1px solid #f2f2f2; }
-    .match .m-title { flex:1 1 220px; }
-    .edit { margin-top:.6rem; display:grid; grid-template-columns: max-content 1fr; gap:.4rem .6rem; align-items:center; }
-    @media (max-width: 600px) { .edit { grid-template-columns: 1fr; } }
-    .badge { display:inline-block; margin-right:.35rem; font-size:.95em; }
-  </style>
+  {% include "_head.html" %}
 </head>
 <body>
-  <header>
-    <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
-    <h1><a href="/">Book Finder</a> · Wishlist</h1>
-    <a href="/" style="margin-left:auto">← Search</a>
-  </header>
+  <div class="page narrow">
+    <header class="topbar">
+      <a class="brand" href="/"><img src="/static/logo.png" alt="" /><h1>Book Finder <span class="sub">· Wishlist</span></h1></a>
+      <nav class="nav">
+        <a href="/">Search</a>
+        <button id="themeToggle" type="button" aria-label="Theme">🌓</button>
+      </nav>
+    </header>
 
-  <p class="muted">
-    Saved searches. <strong>Check now</strong> runs one MAM search for that item.
-    <span id="usage"></span>
-    <span id="scheduler"></span>
-  </p>
-  <div id="status" class="muted"></div>
-  <div id="items"></div>
+    <p class="muted">
+      Saved searches. <strong>Check now</strong> runs one MAM search for that item.
+      <span id="usage"></span>
+    </p>
+    <p id="scheduler" class="muted"></p>
+    <div id="status" class="muted status"></div>
+    <div id="items"></div>
+  </div>
 
   <script src="/static/common.js?v={{ asset_version }}" defer></script>
   <script src="/static/wishlist.js?v={{ asset_version }}" defer></script>

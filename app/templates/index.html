@@ -4,116 +4,86 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Book Finder</title>
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
-  <link rel="apple-touch-icon" href="/static/favicon-180.png">
-  <meta name="theme-color" content="#f5c518">
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-    header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin: 0; }
-    .logo { height: 1.6rem; width: auto; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 1100px; }
-    .row { display:flex; gap:0.5rem; flex-wrap: wrap; }
-    input[type="text"] { flex:1; min-width: 260px; padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
-    select { padding:0.6rem; border:1px solid #ccc; border-radius:8px; }
-    button { padding:0.6rem 0.9rem; border:1px solid #888; background:#f6f6f6; border-radius:8px; cursor:pointer; }
-    table { width:100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { padding: 0.5rem; border-bottom: 1px solid #eee; text-align: left; }
-    .muted { color:#666; font-size:0.9rem; }
-    .right { text-align:right; }
-    .center { text-align: center; }
-    .import-form input, .import-form select { padding:4px 6px; }
-    .import-form button { padding:4px 10px; }
-    .badge { display:inline-block; margin-right:.35rem; font-size:.95em; }
-    .navlink { margin-left:auto; white-space:nowrap; }
-    .count { margin-left:.35rem; padding:0 .45rem; border-radius:999px; background:#f5c518; color:#000; font-size:.85rem; }
-    .save-big { margin-top:.5rem; padding:.8rem 1.2rem; font-size:1rem; }
-    .versions-toggle { margin-top:.3rem; padding:2px 8px; font-size:.85rem; }
-    tr.version td { background:#fafafa; }
-    tr.version td:first-child { padding-left:1.5rem; }
-  </style>
+  {% include "_head.html" %}
 </head>
 <body>
-  <header>
-    <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
-    <h1>Book Finder</h1>
-    <span class="muted">Find audiobooks and ebooks on MAM, then import them to Audiobookshelf and your ebook library</span>
-    <a id="wishLink" class="navlink" href="/wishlist/view" title="Saved searches">Wishlist<span id="wishBadge" class="count" style="display:none"></span></a>
-  </header>
+  <div class="page">
+    <header class="topbar">
+      <a class="brand" href="/"><img src="/static/logo.png" alt="" /><h1>Book Finder</h1></a>
+      <nav class="nav">
+        <a id="wishLink" href="/wishlist/view" title="Saved searches">Wishlist<span id="wishBadge" class="count" style="display:none"></span></a>
+        <button id="showHistoryBtn" type="button" title="Download history and import">History</button>
+        {% if setup_enabled %}<a href="/setup">Setup</a>{% endif %}
+        <button id="themeToggle" type="button" aria-label="Theme">🌓</button>
+      </nav>
+    </header>
 
-  <form id="searchForm" class="row">
-    <input id="q" type="text" placeholder="Search title, author, narrator or series" />
-    <select id="media" title="What to search">
-      <option value="audiobook">Audiobooks</option>
-      <option value="ebook">Ebooks</option>
-      <option value="both">Both</option>
-    </select>
-    <select id="sort">
-      <option value="default">Sort: Default</option>
-      <option value="seedersDesc">Seeders ↓</option>
-      <option value="dateDesc">Date Added ↓</option>
-      <option value="sizeDesc">Size ↓</option>
-    </select>
-    <select id="perpage">
-      <option>25</option>
-      <option>50</option>
-      <option>100</option>
-    </select>
-    <button id="searchBtn" type="submit">Search</button>
-  </form>
+    <form id="searchForm">
+      <div class="search-row">
+        <input id="q" type="text" placeholder="Search title, author, narrator or series" enterkeyhint="search" autocomplete="off" />
+        <button id="searchBtn" type="submit" class="btn-primary">Search</button>
+      </div>
+      <div class="controls">
+        <div class="seg" role="radiogroup" aria-label="What to search">
+          <input type="radio" name="media" id="media-audiobook" value="audiobook" checked><label for="media-audiobook">Audiobooks</label>
+          <input type="radio" name="media" id="media-ebook" value="ebook"><label for="media-ebook">Ebooks</label>
+          <input type="radio" name="media" id="media-both" value="both"><label for="media-both">Both</label>
+        </div>
+        <select id="sort" aria-label="Sort">
+          <option value="default">Sort: default</option>
+          <option value="seedersDesc">Most seeders</option>
+          <option value="dateDesc">Newest</option>
+          <option value="sizeDesc">Largest</option>
+        </select>
+        <select id="perpage" aria-label="Results per page">
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </form>
 
-    <div id="status" class="muted" style="margin-top:0.5rem"></div>
+    <div id="status" class="muted status"></div>
 
-    <table id="results" style="display:none">
-		<thead>
-		  <tr>
-		    <th>Title</th>
-		    <th>Author</th>
-		    <th>Narrator</th>
-		    <th>Filetype</th>
-		    <th class="right">Size</th>
-		    <th class="right">Seeders</th>
-		    <th>Uploaded</th>
-		    <th class="center">Link</th>
-		    <th>Add</th>
-		  </tr>
-		</thead>
+    <table id="results" class="cards" style="display:none">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Narrator</th>
+          <th>Format</th>
+          <th class="right">Size</th>
+          <th class="right">Seeders</th>
+          <th>Uploaded</th>
+          <th class="center">Link</th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody></tbody>
     </table>
     <div id="resultsFooter" style="display:none"></div>
-    
-    <div id="historyCard" class="card" style="margin-top:1rem; display:none">
-      <h3 style="margin:0 0 .5rem 0; font-size:1.1rem;">History</h3>
-      <table id="history">
+
+    <section id="historyCard" class="card" style="display:none">
+      <h2 style="margin:0 0 .25rem; font-size:1.1rem;">History</h2>
+      <table id="history" class="cards">
         <thead>
-		    <tr>
-		      <th>Title</th>
-		      <th>Author</th>
-		      <th>Narrator</th>
-		      <th class="center">Link</th>
-		      <th>When</th>
-		      <th>Status</th>
-		      <th>Import</th>
-		      <th>Remove</th>
-		    </tr>
+          <tr>
+            <th>Title</th>
+            <th>Author</th>
+            <th>Narrator</th>
+            <th class="center">Link</th>
+            <th>When</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
         </thead>
         <tbody></tbody>
       </table>
-    </div>
+    </section>
 
-    <p class="muted">Health check: <code id="health">…</code></p>
-    <p id="ingestWarn" style="display:none;color:#a33;"></p>
+    <p id="ingestWarn" class="alert" style="display:none"></p>
+    <footer class="footer">Health check: <code id="health">…</code></footer>
   </div>
-  <div style="margin-left:auto">
-    <button id="showHistoryBtn" title="Show download history">History & Import</button>
-  </div>
-  {% if setup_enabled %}
-  <div style="margin-left:auto; margin-top:0.5rem">
-    <button type="button" onclick="window.location.href='/setup'">Setup / Configuration</button>
-  </div>
-  {% endif %}
 
   <script src="/static/common.js?v={{ asset_version }}" defer></script>
   <script src="/static/app.js?v={{ asset_version }}" defer></script>

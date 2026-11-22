@@ -81,10 +81,10 @@ app = FastAPI(title="MAM Book Finder", version=mam.APP_VERSION, lifespan=lifespa
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 # Appended to static URLs so proxies (e.g. Cloudflare) don't serve stale JS
-# after a rebuild: a short hash of the JS files, so it changes whenever they do.
+# after a rebuild: a short hash of the JS and CSS files, so it changes whenever they do.
 def _asset_version() -> str:
     h = hashlib.sha256()
-    for f in sorted((APP_DIR / "static").glob("*.js")):
+    for f in sorted([*(APP_DIR / "static").glob("*.js"), *(APP_DIR / "static").glob("*.css")]):
         h.update(f.read_bytes())
     return h.hexdigest()[:10]
 

@@ -4,138 +4,105 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Book Finder – Setup</title>
-  <link rel="icon" href="/static/favicon.ico" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
-  <link rel="apple-touch-icon" href="/static/favicon-180.png">
-  <meta name="theme-color" content="#f5c518">
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-    header { display:flex; align-items:center; gap:0.75rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; margin: 0; }
-    .logo { height: 1.6rem; width: auto; }
-    .title-link { color: inherit; text-decoration: none; cursor: pointer; }
-    .title-link:hover { text-decoration: underline; }
-    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; max-width: 900px; }
-    .row { display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem; }
-    label { font-weight: 500; }
-    input[type="text"], input[type="password"], textarea {
-      width:100%; padding:0.6rem; border:1px solid #ccc; border-radius:8px;
-      font-family: inherit; font-size: 0.95rem;
-    }
-    textarea { min-height: 4rem; resize: vertical; }
-    small { color:#666; font-size:0.85rem; }
-    button { padding:0.6rem 0.9rem; border:1px solid #888; background:#f6f6f6; border-radius:8px; cursor:pointer; }
-    .muted { color:#666; font-size:0.9rem; }
-  </style>
+  {% include "_head.html" %}
 </head>
 <body>
-  <header>
-    <img src="/static/logo.png" alt="Book Finder logo" class="logo" />
-    <h1><a href="/" class="title-link">Book Finder – Setup</a></h1>
-  </header>
+  <div class="page narrow">
+    <header class="topbar">
+      <a class="brand" href="/"><img src="/static/logo.png" alt="" /><h1>Book Finder <span class="sub">· Setup</span></h1></a>
+      <nav class="nav">
+        <a href="/">Search</a>
+        <button id="themeToggle" type="button" aria-label="Theme">🌓</button>
+      </nav>
+    </header>
 
-  <div class="card">
-    <p class="muted">
-      Connect to MyAnonamouse, qBittorrent, and your Audiobookshelf library.
-    </p>
-
-    <form id="setupForm">
-      <div class="row">
-        <label for="mam_cookie">MyAnonamouse cookie</label>
-        <textarea id="mam_cookie" name="mam_cookie" placeholder="Paste your MAM cookie or mam_id token"></textarea>
-        <small>Create an ASN locked session from your <a href="https://www.myanonamouse.net/preferences/index.php?view=security">MyAnonymouse Preferences:Security Page</a>. Paste your session cookie here.</small>
+    <form id="setupForm" class="card">
+      <h2 class="form-section" style="margin-top:.25rem">MyAnonamouse</h2>
+      <div class="field">
+        <label for="mam_cookie">mam_id cookie</label>
+        <textarea id="mam_cookie" name="mam_cookie" placeholder="Paste your mam_id value (leave blank to keep the saved one)"></textarea>
+        <small>Create an ASN-locked session on your <a href="https://www.myanonamouse.net/preferences/index.php?view=security" target="_blank" rel="noopener noreferrer">MAM Preferences → Security</a> page and paste its <code>mam_id</code> here. Only <code>mam_id</code> is ever sent.</small>
       </div>
 
-      <div class="row">
-        <label for="qb_url">qBittorrent WebUI URL</label>
+      <h2 class="form-section">qBittorrent</h2>
+      <div class="field">
+        <label for="qb_url">WebUI URL</label>
         <input id="qb_url" name="qb_url" type="text" value="{{ qb_url }}" placeholder="http://qbittorrent:8080" />
-        <small>Usually the same URL you use in your browser or from other tools.</small>
+        <small>Usually the same URL you use in your browser.</small>
       </div>
-
-      <div class="row">
-        <label for="qb_user">qBittorrent username</label>
-        <input id="qb_user" name="qb_user" type="text" value="{{ qb_user }}" placeholder="admin" />
+      <div class="field">
+        <label for="qb_user">Username</label>
+        <input id="qb_user" name="qb_user" type="text" value="{{ qb_user }}" placeholder="admin" autocomplete="username" />
       </div>
-
-      <div class="row">
-        <label for="qb_pass">qBittorrent password</label>
-        <input id="qb_pass" name="qb_pass" type="password" placeholder="••••••••" />
+      <div class="field">
+        <label for="qb_pass">Password</label>
+        <input id="qb_pass" name="qb_pass" type="password" placeholder="Leave blank to keep the saved one" autocomplete="current-password" />
       </div>
-
-      <div class="row">
-        <label for="qb_prefix">qBittorrent content path prefix</label>
+      <div class="field">
+        <label for="qb_prefix">qBittorrent's download path</label>
         <input id="qb_prefix" name="qb_prefix" type="text" value="{{ qb_prefix }}" placeholder="/downloads" />
-        <small>The beginning of the path shown in qB's “Content” tab for a finished torrent (e.g. <code>/downloads</code>). </br>If QBittorrent is running in Docker, this is the path <em>within</em> the QBittorrent container.</small>
+        <small>The start of the path in qB's “Content” tab for a finished torrent, e.g. <code>/downloads</code>. If qB runs in Docker, it's the path <em>inside the qB container</em>.</small>
+      </div>
+      <div class="field">
+        <label for="app_prefix">The same downloads, inside this container</label>
+        <input id="app_prefix" name="app_prefix" type="text" value="{{ app_prefix }}" placeholder="/media/torrents" />
+        <small>Where that downloads folder is mounted in <em>this</em> container, e.g. <code>/downloads</code> or <code>/media/torrents</code>.</small>
       </div>
 
-      <div class="row">
-        <label for="app_prefix">Downloads path inside this container</label>
-        <input id="app_prefix" name="app_prefix" type="text" value="{{ app_prefix }}" placeholder="/downloads" />
-        <small>The path inside <em>this</em> container where that same torrent downloads directory is mounted (e.g. <code>/downloads</code> or <code>/media/torrents</code>).</small>
+      <h2 class="form-section">Libraries</h2>
+      <div class="field">
+        <label for="lib_dir">Audiobookshelf library folder</label>
+        <input id="lib_dir" name="lib_dir" type="text" value="{{ lib_dir }}" placeholder="/media/audiobookshelf" />
+        <small>Where imported audiobooks go (Author/Title folders), as a path inside this container.</small>
       </div>
-
-      <div class="row">
-        <label for="lib_dir">Audiobookshelf library directory (inside this container)</label>
-        <input id="lib_dir" name="lib_dir" type="text" value="{{ lib_dir }}" placeholder="/library/audiobooks" />
-        <small>Where to place imported books, e.g. the root of your Audiobookshelf library. This should be the path within <em>this</em> container.</small>
-      </div>
-
-      <div class="row">
-        <label for="ebook_ingest_dir">Ebook import folder (inside this container)</label>
+      <div class="field">
+        <label for="ebook_ingest_dir">Ebook import folder</label>
         <input id="ebook_ingest_dir" name="ebook_ingest_dir" type="text" value="{{ ebook_ingest_dir }}" placeholder="/media/books/import" />
-        <small>Optional. The import (watch) folder your ebook library picks new books up from, e.g. <code>/media/books/import</code>. Ebooks are always copied (never hardlinked), so the library can't damage the seeding torrent. The folder must already exist and be writable by this container's user.</small>
+        <small>Optional. The folder your ebook server watches for new books, inside this container. Ebooks are always copied (never hardlinked), so the server can't damage the seeding torrent. It must already exist and be writable by this container's user.</small>
       </div>
 
-      <h3 style="margin:1.5rem 0 .5rem; font-size:1.05rem;">Notifications (optional)</h3>
-      <div class="row">
+      <h2 class="form-section">Notifications <span class="muted">(optional)</span></h2>
+      <div class="field">
         <label for="notify_webhook_url">Notification URL</label>
         <input id="notify_webhook_url" name="notify_webhook_url" type="text" value="{{ notify_webhook_url }}" placeholder="https://ntfy.example.com/books" />
-        <small>For ntfy, your topic's URL. Used for new wishlist matches and (later) scheduler problems. Notifications never include your MAM cookie or download links. Leave empty for none.</small>
+        <small>For ntfy, your topic's URL. Used for new wishlist matches and scheduler problems. Never includes your MAM cookie or download links. Leave empty for none.</small>
       </div>
-      <div class="row">
+      <div class="field">
         <label for="notify_format">Format</label>
         <select id="notify_format" name="notify_format">
           <option value="ntfy" {% if notify_format != "json" %}selected{% endif %}>ntfy</option>
           <option value="json" {% if notify_format == "json" %}selected{% endif %}>Generic JSON webhook (e.g. Home Assistant)</option>
         </select>
       </div>
-      <div class="row">
+      <div class="field">
         <label for="notify_token">Access token</label>
         <input id="notify_token" name="notify_token" type="password" autocomplete="off" placeholder="{% if notify_has_token %}Saved (leave blank to keep){% else %}Only if your topic needs one{% endif %}" />
-        {% if notify_has_token %}<label style="font-weight:normal"><input id="notify_clear_token" type="checkbox" /> Remove the saved token</label>{% endif %}
+        {% if notify_has_token %}<label class="check"><input id="notify_clear_token" type="checkbox" /> Remove the saved token</label>{% endif %}
       </div>
-      <div class="row">
+      <div class="field">
         <label for="notify_click_url">Open this when a notification is tapped</label>
         <input id="notify_click_url" name="notify_click_url" type="text" value="{{ notify_click_url }}" placeholder="https://books.example.com/wishlist/view" />
         <small>Optional: this app's address as you reach it from your phone.</small>
       </div>
-      <div class="row">
-        <label style="font-weight:normal"><input id="notify_on_import" type="checkbox" {% if notify_on_import %}checked{% endif %} /> Also notify when an import finishes</label>
+      <div class="field">
+        <label class="check"><input id="notify_on_import" type="checkbox" {% if notify_on_import %}checked{% endif %} /> Also notify when an import finishes</label>
       </div>
-      <div class="row" style="flex-direction:row; align-items:center; gap:.75rem;">
+      <div class="field inline">
         <button type="button" id="notifyTestBtn">Send test notification</button>
         <span id="notifyTestStatus" class="muted">Saves first, then sends one test message.</span>
       </div>
 
-      <div class="row">
-        <button type="submit">Save setup</button>
+      <div class="inline" style="margin-top:1.5rem">
+        <button type="submit" class="btn-primary">Save setup</button>
         <span id="setupStatus" class="muted"></span>
       </div>
     </form>
 
-    <p class="muted">
-      After saving, this page will use the new settings immediately.
-    </p> 
-    <p class="muted">
-      You may hide/disable this setup UI with the <code>DISABLE_SETUP</code> environment variable.
-    </p>
+    <p class="muted">Settings take effect as soon as you save. You can hide this page with the <code>DISABLE_SETUP</code> environment variable.</p>
+    <footer class="footer">Health check: <code id="health">…</code></footer>
   </div>
 
-  <p class="muted" style="margin-top:1rem">
-    Health check: <code id="health">…</code>
-  </p>
-
+  <script src="/static/common.js?v={{ asset_version }}" defer></script>
   <script src="/static/setup.js?v={{ asset_version }}" defer></script>
 </body>
 </html>

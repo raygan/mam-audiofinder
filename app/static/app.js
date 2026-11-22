@@ -3,7 +3,15 @@ const form = document.getElementById('searchForm');
 const q = document.getElementById('q');
 const sortSel = document.getElementById('sort');
 const perpageSel = document.getElementById('perpage');
-const mediaSel = document.getElementById('media');
+// Audiobooks / Ebooks / Both is a segmented radio group; this gives it the
+// small select-like interface the rest of the code uses.
+const mediaInputs = [...document.querySelectorAll('input[name="media"]')];
+const mediaSel = {
+  get value() { return (mediaInputs.find(i => i.checked) || {}).value || 'audiobook'; },
+  set value(v) { const i = mediaInputs.find(x => x.value === v); if (i) i.checked = true; },
+  options: mediaInputs,
+  addEventListener: (ev, fn) => mediaInputs.forEach(i => i.addEventListener(ev, fn)),
+};
 const statusEl = document.getElementById('status');
 const table = document.getElementById('results');
 const tbody = table.querySelector('tbody');
@@ -13,8 +21,9 @@ const resultsFooter = document.getElementById('resultsFooter');
 // The last search that ran, so saving it can record what's already on screen.
 let lastSearch = null;
 
-// Focus the search box
-if (q) q.focus();
+// Focus the search box on desktop only: on a phone it would pop the keyboard
+// (and older iOS zooms in).
+if (q && window.matchMedia('(pointer: fine)').matches) q.focus();
 
 // Remember the media selector per browser (storage can be unavailable).
 const MEDIA_KEY = 'bookfinder.media';
@@ -126,7 +135,7 @@ async function runSearch() {
       const formats = [...new Set(items.map(it => it.format).filter(Boolean))].join(' · ');
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'versions-toggle';
+      toggle.className = 'versions-toggle btn-small';
       const label = (open) => `${open ? '▾' : '▸'} ${items.length} versions${formats ? ` (${formats})` : ''}`;
       toggle.textContent = label(false);
       toggle.addEventListener('click', () => {
@@ -134,7 +143,6 @@ async function runSearch() {
         versionRows.forEach(vr => { vr.style.display = open ? '' : 'none'; });
         toggle.textContent = label(open);
       });
-      tr.firstElementChild.appendChild(document.createElement('br'));
       tr.firstElementChild.appendChild(toggle);
     });
 
@@ -208,17 +216,15 @@ function makeResultRow(it) {
   const detailsURL = it.id ? `https://www.myanonamouse.net/t/${encodeURIComponent(it.id)}` : '';
 
   tr.innerHTML = `
-    <td>${mediaBadge(it.media_type)}${escapeHtml(it.title || '')}${it.series ? `<div class="muted">${escapeHtml(it.series)}</div>` : ''}</td>
-    <td>${escapeHtml(it.author_info || '')}</td>
-    <td>${escapeHtml(it.narrator_info || '')}</td>
-    <td>${escapeHtml(it.format || '')}</td>
-    <td class="right">${formatSize(it.size)}</td>
-    <td class="right">${sl}</td>
-    <td>${escapeHtml(it.added || '')}</td>
-    <td class="center">
-      ${detailsURL ? `<a href="${detailsURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}
-    </td>
-    <td></td>
+    <td class="primary" data-label="">${mediaBadge(it.media_type)}${escapeHtml(it.title || '')}${it.series ? `<div class="muted">${escapeHtml(it.series)}</div>` : ''}</td>
+    <td data-label="By">${escapeHtml(it.author_info || '')}</td>
+    <td data-label="Read by">${escapeHtml(it.narrator_info || '')}</td>
+    <td data-label="Format">${escapeHtml(it.format || '')}</td>
+    <td class="right" data-label="Size">${formatSize(it.size)}</td>
+    <td class="right" data-label="Seeders">${sl}</td>
+    <td data-label="Uploaded">${escapeHtml(it.added || '')}</td>
+    <td class="center" data-label="">${detailsURL ? `<a href="${detailsURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗 MAM</a>` : ''}</td>
+    <td class="actions" data-label=""></td>
   `;
   tr.lastElementChild.appendChild(addBtn);
   return tr;
@@ -229,16 +235,16 @@ function makeResultRow(it) {
 // (preferred format pre-ticked). Files are always copied, never linked.
 async function openEbookImport(expTd, h, tr, close) {
   expTd.innerHTML = `
-    <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <div class="import-form panel">
+      <div class="panel-row">
         <span>Import ebook from:</span>
-        <select class="imp-torrent" style="min-width:280px;max-width:100%;">
+        <select class="imp-torrent" aria-label="Torrent">
           <option disabled selected>Loading torrents…</option>
         </select>
       </div>
-      <div class="imp-files" style="margin-top:8px;"></div>
-      <button class="imp-go" style="margin-top:8px;" disabled>Copy to ebook import folder</button>
-      <div class="imp-status" style="margin-top:6px;color:#666;"></div>
+      <div class="imp-files files"></div>
+      <button class="imp-go go btn-primary" disabled>Copy to ebook import folder</button>
+      <div class="imp-status muted"></div>
     </div>
   `;
   const sel   = expTd.querySelector('.imp-torrent');
@@ -257,15 +263,12 @@ async function openEbookImport(expTd, h, tr, close) {
       if (!books.length) { box.textContent = 'No ebook files in this torrent.'; return; }
       books.forEach((b) => {
         const div = document.createElement('div');
-        div.style.margin = '4px 0';
         const name = document.createElement('div');
         name.textContent = b.book;
-        name.style.fontWeight = '600';
+        name.className = 'book';
         div.appendChild(name);
         b.files.forEach((f) => {
           const label = document.createElement('label');
-          label.style.display = 'block';
-          label.style.marginLeft = '1rem';
           const cb = document.createElement('input');
           cb.type = 'checkbox';
           cb.value = f.path;
@@ -392,21 +395,20 @@ async function loadHistory() {
       });
 
       tr.innerHTML = `
-        <td>${mediaBadge(h.media_type || 'audiobook')}${escapeHtml(h.title || '')}</td>
-        <td>${escapeHtml(h.author || '')}</td>
-        <td>${escapeHtml(h.narrator || '')}</td>
-        <td class="center">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗</a>` : ''}</td>
-        <td>${escapeHtml(when)}</td>
-        <td>${escapeHtml(h.qb_status || '')}</td>
-        <td></td>   <!-- Import -->
-        <td></td>   <!-- Remove -->
+        <td class="primary" data-label="">${mediaBadge(h.media_type || 'audiobook')}${escapeHtml(h.title || '')}</td>
+        <td data-label="By">${escapeHtml(h.author || '')}</td>
+        <td data-label="Read by">${escapeHtml(h.narrator || '')}</td>
+        <td class="center" data-label="">${linkURL ? `<a href="${linkURL}" target="_blank" rel="noopener noreferrer" title="Open on MAM">🔗 MAM</a>` : ''}</td>
+        <td data-label="Added">${escapeHtml(when)}</td>
+        <td data-label="Status">${escapeHtml(h.qb_status || '')}</td>
+        <td class="actions" data-label=""></td>
       `;
-      tr.children[tr.children.length - 2].appendChild(importBtn);
-      tr.lastElementChild.appendChild(rmBtn);
+      tr.lastElementChild.append(importBtn, rmBtn);
       htbody.appendChild(tr);
 
 // expander row (initially hidden)
 const exp = document.createElement('tr');
+exp.className = 'expander';
 exp.style.display = 'none';
 const expTd = document.createElement('td');
 expTd.colSpan = hist.querySelector('thead tr').children.length; // match column count
@@ -430,20 +432,18 @@ importBtn.addEventListener('click', async () => {
     return;
   }
   expTd.innerHTML = `
-    <div class="import-form" style="padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <span>Import:</span>
-        <span>/</span>
-        <input type="text" class="imp-author" placeholder="Author" value="${escapeHtml(h.author || '')}" style="min-width:220px;">
-        <span>/</span>
-        <input type="text" class="imp-title" placeholder="Title" value="${escapeHtml(h.title || '')}" style="min-width:280px;">
-        <span>/</span>
-        <select class="imp-torrent" style="min-width:320px;">
+    <div class="import-form panel">
+      <div class="panel-row">
+        <input type="text" class="imp-author" placeholder="Author" aria-label="Author folder" value="${escapeHtml(h.author || '')}">
+        <input type="text" class="imp-title" placeholder="Title" aria-label="Title folder" value="${escapeHtml(h.title || '')}">
+      </div>
+      <div class="panel-row" style="margin-top:.5rem">
+        <select class="imp-torrent" aria-label="Torrent">
           <option disabled selected>Loading torrents…</option>
         </select>
-        <button class="imp-go">Copy to Library</button>
+        <button class="imp-go btn-primary">Copy to library</button>
       </div>
-      <div class="imp-status" style="margin-top:6px;color:#666;"></div>
+      <div class="imp-status muted"></div>
     </div>
   `;
 
@@ -583,8 +583,7 @@ async function loadWishSummary() {
     const halted = j.scheduler === 'halted';
     badge.textContent = halted ? 'halted' : (j.unreviewed ? `${j.unreviewed} new` : '');
     badge.style.display = halted || j.unreviewed ? '' : 'none';
-    badge.style.background = halted ? '#c33' : '';
-    badge.style.color = halted ? '#fff' : '';
+    badge.classList.toggle('danger', halted);
     link.title = `Saved searches · scheduler ${j.scheduler}`;
   } catch {}
 }

@@ -1,0 +1,11 @@
+  <link rel="icon" href="/static/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+  <link rel="apple-touch-icon" href="/static/favicon-180.png">
+  <meta name="theme-color" content="#f5c518">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    // Apply a saved light/dark choice before the page paints (see common.js).
+    try { var t = localStorage.getItem('bookfinder.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
