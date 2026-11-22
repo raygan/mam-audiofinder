@@ -9,7 +9,7 @@ See docs/MAM_COMPLIANCE.md for the rule -> code -> test mapping.
 import json, logging, os, re
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, parse_qsl, urlencode, quote
+from urllib.parse import urlsplit, parse_qsl, urlencode
 
 import httpx
 
@@ -69,11 +69,11 @@ PERPAGE_MIN, PERPAGE_MAX = 5, 100
 _DIGITS = re.compile(r"^\d+$")
 _HEX = re.compile(r"^[0-9a-fA-F]+$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-# dl hashes are opaque; allow only URL-safe characters so they can't inject
-# a path segment or query string. Tighten/loosen once a sanitized fixture
-# confirms the real character set.
 _EMPTY_RESULT = re.compile(r"^Nothing returned, out of (\d+)$")
-_DL_HASH = re.compile(r"^[A-Za-z0-9_-]{8,512}$")
+# dl hash: URL-safe base64 with optional '=' padding (shape confirmed from a
+# sanitized capture, 2026-11-21). Nothing that could add a path segment or
+# query string.
+_DL_HASH = re.compile(r"^[A-Za-z0-9_-]{8,512}={0,2}$")
 
 
 def _deny(msg: str):
@@ -510,8 +510,30 @@ async def search(
 
 
 def build_dl_url(dl: str, tid) -> str:
-    """Documented cookie-less download URL, for handing to qBittorrent."""
-    url = f"{MAM_BASE}{DOWNLOAD_PATH}/{quote(str(dl), safe='')}?{urlencode({'tid': str(tid)})}"
+    """Documented cookie-less download URL, for handing to qBittorrent.
+
+    MAM's dl value (confirmed 2026-11-21) is "<hash>?tid=<id>": the hash is
+    URL-safe base64 (A-Z a-z 0-9 _ -, optional '=' padding) and MAM has
+    already appended the documented ?tid=. A bare hash is also accepted.
+    The query, if present, must be exactly tid=<this torrent's id>; anything
+    else (fl, another param, a different id) is refused. The URL is rebuilt
+    from the validated parts, unencoded, so the guard sees what qB fetches.
+    """
+    dl, tid = str(dl or ""), str(tid if tid is not None else "")
+    if not _DIGITS.match(tid):
+        _deny("download.php takes exactly one parameter: tid=<numeric id>")
+    dl_hash, sep, query = dl.partition("?")
+    if sep:
+        try:
+            pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True)
+        except ValueError:
+            _deny("dl hash has an unexpected query string")
+        _check_download_query(pairs)  # exactly tid=<digits>; never fl
+        if pairs[0][1] != tid:
+            _deny("dl hash tid does not match the torrent id")
+    if not _DL_HASH.match(dl_hash):
+        _deny("dl hash has unexpected characters")
+    url = f"{MAM_BASE}{DOWNLOAD_PATH}/{dl_hash}?{urlencode({'tid': tid})}"
     check_allowed("GET", url)
     return url
 

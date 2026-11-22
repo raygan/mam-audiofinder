@@ -199,3 +199,13 @@ def test_add_duplicate_returns_409_and_no_history(net, client, dl):
 def test_static_assets_are_versioned(client):
     html = client.get("/setup").text
     assert f"/static/setup.js?v={main._asset_version()}" in html
+
+
+
+def test_add_with_real_format_dl_hands_qb_single_tid(net, client):
+    h = "AAAAaaaa0000_-bbbb="
+    r = client.post("/add", json={"id": "882573", "title": "Saving Supervillains", "dl": f"{h}?tid=882573"})
+    assert r.status_code == 200, r.text
+    assert net.mam_requests == []
+    (add,) = qb_adds(net)
+    assert form_of(add)["urls"] == f"https://www.myanonamouse.net/tor/download.php/{h}?tid=882573"

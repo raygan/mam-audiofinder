@@ -281,7 +281,6 @@ def test_mam_html_snippets_never_reach_the_client(net):
 
 
 def test_capture_blanks_ownership(net, tmp_path, monkeypatch):
-    import json
     monkeypatch.setenv("MAM_CAPTURE_DIR", str(tmp_path))
     body = {"data": [{"id": 1, "title": "t", "ownership": "[94940,\"someone\"]"}], "total": 1, "found": 1}
     net.mam_handler = lambda r: httpx.Response(200, json=body)

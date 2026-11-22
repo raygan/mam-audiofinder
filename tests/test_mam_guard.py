@@ -169,3 +169,47 @@ def test_search_route_rejects_bad_sort_without_sending(net, client):
     assert r.status_code == 400
     assert r.json()["error"] == "MamEndpointNotAllowed"
     assert net.requests == []
+
+
+
+# ---------------- real dl format: "<hash>?tid=<id>" ----------------
+# Same shape as a sanitized real value (letters/digits replaced, punctuation kept).
+REAL_SHAPE_HASH = ("aAaAaa0aaAAAAa0AaAAAaaAaaaaaAaaAaAaA0A0AAAa_aa-AAA0AA0AAaAAAAAa0aAAAaaa0aaAAAAaAaAaaa0"
+                   "AAAAaa-AaAAaaAA0AAaaa0AA0_0aaaaAaa0aA=")
+
+
+def test_real_dl_format_builds_documented_url():
+    url = mam.build_dl_url(f"{REAL_SHAPE_HASH}?tid=882573", "882573")
+    assert url == f"{BASE}/tor/download.php/{REAL_SHAPE_HASH}?tid=882573"
+    assert url.count("?") == 1 and url.count("tid=") == 1
+    assert "%" not in url
+
+
+def test_bare_hash_with_padding_still_works():
+    assert mam.build_dl_url(REAL_SHAPE_HASH, 5) == f"{BASE}/tor/download.php/{REAL_SHAPE_HASH}?tid=5"
+    assert mam.build_dl_url("AAAAaaaa0000==", "5").endswith("/AAAAaaaa0000==?tid=5")
+
+
+@pytest.mark.parametrize("dl", [
+    f"{REAL_SHAPE_HASH}?tid=999",            # tid doesn't match the torrent being added
+    f"{REAL_SHAPE_HASH}?uid=882573",         # undocumented param
+    f"{REAL_SHAPE_HASH}?tid=882573&fl=1",    # never fl
+    f"{REAL_SHAPE_HASH}?fl=1&tid=882573",
+    f"{REAL_SHAPE_HASH}?tid=882573&tid=882573",
+    f"{REAL_SHAPE_HASH}?tid=",
+    f"{REAL_SHAPE_HASH}?",
+    f"{REAL_SHAPE_HASH}?tid=882573?x=1",
+    "aaaa=bbbbcccc?tid=882573",              # '=' only allowed as trailing padding
+    "AAAAaaaa0000===?tid=882573",
+    "AAAA/aaaa0000?tid=882573",
+    "AAAA%2Faaaa00?tid=882573",
+])
+def test_bad_real_format_dl_rejected(dl):
+    with pytest.raises(MamEndpointNotAllowed):
+        mam.build_dl_url(dl, "882573")
+
+
+def test_padded_hash_passes_guard_but_mid_equals_does_not():
+    check_allowed("GET", f"{BASE}/tor/download.php/{REAL_SHAPE_HASH}?tid=1")
+    with pytest.raises(MamEndpointNotAllowed):
+        check_allowed("GET", f"{BASE}/tor/download.php/aaaa=bbbbcccc?tid=1")
